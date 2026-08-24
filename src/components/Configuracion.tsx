@@ -1,3 +1,4 @@
+declare const google: any;
 import React, { useState, useEffect } from 'react';
 import {
   Settings,

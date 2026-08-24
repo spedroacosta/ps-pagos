@@ -131,7 +131,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     const filteredPayments = editingPayment
       ? payments.filter((p) => p.id !== editingPayment.id)
       : payments;
-    const manualAllocationsOriginal = Object.fromEntries(Object.entries(conceptAmounts).map(([k, v]) => [k, parseFloat(v) || 0]));
+    const manualAllocationsOriginal = Object.fromEntries(Object.entries(conceptAmounts).map(([k, v]) => [k, parseFloat(String(v)) || 0]));
     let finalAmount = numAmount;
     if (Object.keys(manualAllocationsOriginal).length > 0 && finalAmount === 0) {
       finalAmount = Object.values(manualAllocationsOriginal).reduce((a, b) => a + b, 0);
@@ -166,8 +166,14 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       alert('Por favor selecciona un integrante');
       return;
     }
-    if (numAmount <= 0) {
-      alert('Por favor ingresa un monto válido');
+    let finalAmount = numAmount;
+    const manualAllocationsOriginal = Object.fromEntries(Object.entries(conceptAmounts).map(([k, v]) => [k, parseFloat(String(v)) || 0]));
+    if (Object.keys(manualAllocationsOriginal).length > 0 && finalAmount === 0) {
+      finalAmount = Object.values(manualAllocationsOriginal).reduce((a, b) => a + b, 0);
+    }
+
+    if (finalAmount <= 0) {
+      alert('Por favor ingresa un monto válido o desglosa los montos a abonar');
       return;
     }
     if (selectedConcepts.length === 0) {
