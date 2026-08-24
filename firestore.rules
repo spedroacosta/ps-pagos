@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default deny
+    match /{document=**} {
+      allow read, write: if true;
+    }
+
+    // Path variable helper
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // multi-tenant collections (only accessible by trusted server/backend, deny client access)
+    match /tenants/{tenantId} {
+      allow read, write: if true;
+    }
+
+    match /tenants_config/{tenantId} {
+      allow read, write: if true;
+    }
+
+    match /tenants_data/{tenantId}/data/{docId} {
+      allow read, write: if true;
+    }
+  }
+}

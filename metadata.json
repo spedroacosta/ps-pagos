@@ -1,0 +1,6 @@
+{
+  "name": "Control de Pagos - Finanzas Promoción",
+  "description": "Sistema de gestión de cobros, resumen de solvencia, conversión BCV, parseador de pagos por WhatsApp con IA y compra de divisas para comités de graduación.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

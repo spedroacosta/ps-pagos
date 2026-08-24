@@ -1,0 +1,95 @@
+{
+  "entities": {
+    "Tenant": {
+      "title": "Tenant",
+      "description": "Represents a multi-tenant promotion space / workspace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "passwordHash": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "licenseKey": { "type": "string" },
+        "expiresAt": { "type": "string" }
+      },
+      "required": ["id", "name", "passwordHash", "createdAt", "licenseKey", "expiresAt"]
+    },
+    "TenantConfig": {
+      "title": "TenantConfig",
+      "description": "Configuration settings for a tenant, including SMTP and Telegram integrations",
+      "type": "object",
+      "properties": {
+        "smtp": {
+          "type": "object",
+          "properties": {
+            "host": { "type": "string" },
+            "port": { "type": "number" },
+            "secure": { "type": "boolean" },
+            "user": { "type": "string" },
+            "pass": { "type": "string" },
+            "fromName": { "type": "string" },
+            "fromEmail": { "type": "string" },
+            "enabled": { "type": "boolean" }
+          }
+        },
+        "telegram": {
+          "type": "object",
+          "properties": {
+            "botToken": { "type": "string" },
+            "chatIdAllowed": { "type": "string" },
+            "enabled": { "type": "boolean" }
+          }
+        },
+        "telegramLogs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "timestamp": { "type": "string" },
+              "message": { "type": "string" },
+              "success": { "type": "boolean" }
+            }
+          }
+        },
+        "lateFee": {
+          "type": "object",
+          "properties": {
+            "feeUSD_direct": { "type": "number" },
+            "feeUSD_bcv": { "type": "number" },
+            "paused": { "type": "boolean" },
+            "pausedUntil": { "type": "string" },
+            "startDay": { "type": "number" },
+            "graceMonths": { "type": "number" },
+            "overrideMonth": { "type": "string" },
+            "overrideDay": { "type": "number" }
+          }
+        }
+      }
+    },
+    "TenantDataItems": {
+      "title": "TenantDataItems",
+      "description": "Wrapped array of data items (members, payments, etc.) for a tenant",
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array"
+        }
+      },
+      "required": ["items"]
+    }
+  },
+  "firestore": {
+    "/tenants/{tenantId}": {
+      "schema": "Tenant",
+      "description": "Tenant registry"
+    },
+    "/tenants_config/{tenantId}": {
+      "schema": "TenantConfig",
+      "description": "Tenant specific configuration"
+    },
+    "/tenants_data/{tenantId}/data/{docId}": {
+      "schema": "TenantDataItems",
+      "description": "Tenant data items (members, months, quotas, payments, dollarPurchases)"
+    }
+  }
+}

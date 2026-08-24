@@ -1,0 +1,9 @@
+    const hasDirectUsd = targetPayments.some((p) =>
+      ['efectivo_usd', 'zelle', 'banesco_panama', 'binance'].includes(p.method) || p.currency === 'USD'
+    );
+    // Also check if any of the bulk payments was in USD if the user is solvent due to bulk
+    const bulkIsDirectUsd = memberBulkPayments.some((p) => 
+      ['efectivo_usd', 'zelle', 'banesco_panama', 'binance'].includes(p.method) || p.currency === 'USD'
+    );
+    requiredFee = (hasDirectUsd || bulkIsDirectUsd) ? feeDirect : feeBcv;
+  } else if (selectedQuota) {
