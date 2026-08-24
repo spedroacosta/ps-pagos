@@ -289,6 +289,7 @@ export const RegistroPagos: React.FC<RegistroPagosProps> = ({
   const [mBcvRate, setMBcvRate] = useState<number>(currentBcvRate);
   const [mReference, setMReference] = useState('');
   const [mNotes, setMNotes] = useState('');
+  const [mConceptAmounts, setMConceptAmounts] = useState<Record<string, string>>({});
   const [mSelectedConcepts, setMSelectedConcepts] = useState<string[]>([]);
 
   useEffect(() => {
@@ -332,15 +333,29 @@ export const RegistroPagos: React.FC<RegistroPagosProps> = ({
     const selectedMember = members.find((m) => m.id === mMemberId);
     const memberName = selectedMember ? `${selectedMember.lastName}, ${selectedMember.firstName}` : '';
 
+    const manualAllocationsOriginal: Record<string, number> = {};
+    for (const key of mSelectedConcepts) {
+       if (mConceptAmounts[key]) {
+         manualAllocationsOriginal[key] = parseFloat(mConceptAmounts[key]) || 0;
+       }
+    }
+    
+    // If they provided manual amounts, auto-calculate numAmount if it's empty or 0
+    let finalAmount = numAmount;
+    if (Object.keys(manualAllocationsOriginal).length > 0 && finalAmount === 0) {
+       finalAmount = Object.values(manualAllocationsOriginal).reduce((a, b) => a + b, 0);
+    }
+
     const distribution = distributePaymentAcrossConcepts({
       memberId: mMemberId,
       selectedConcepts: mSelectedConcepts,
-      amountOriginal: numAmount,
+      amountOriginal: finalAmount,
       currency: mCurrency,
       method: mMethod,
       bcvRate: mBcvRate,
       months,
       quotas,
+      manualAllocationsOriginal
     });
 
     const labelList = distribution.map((d) => d.targetLabel).join(', ');
@@ -374,6 +389,7 @@ export const RegistroPagos: React.FC<RegistroPagosProps> = ({
     setMReference('');
     setMNotes('');
     setMSelectedConcepts([]);
+    setMConceptAmounts({});
   };
 
   // ==========================================
@@ -878,26 +894,24 @@ También informamos que hoy compramos $100 en divisas con bolívares de la cuent
                     const key = `month:${m.id}`;
                     const isChecked = mSelectedConcepts.includes(key);
                     return (
-                      <div
-                        key={key}
-                        onClick={() => toggleManualConcept(key)}
-                        className={`flex items-center justify-between p-2 rounded-lg text-xs cursor-pointer border transition-all ${
-                          isChecked
-                            ? 'bg-indigo-50 border-indigo-200 font-bold text-indigo-950'
-                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-                        }`}
-                      >
-                        <div className="flex items-center space-x-2">
-                          {isChecked ? (
-                            <CheckSquare className="w-4 h-4 text-indigo-600" />
-                          ) : (
-                            <Square className="w-4 h-4 text-slate-400" />
-                          )}
-                          <span>{m.name} {m.year}</span>
+                      <div key={key} className={`flex flex-col p-2 rounded-lg text-xs border transition-all ${isChecked ? 'bg-indigo-50 border-indigo-200 font-bold text-indigo-950' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'}`}>
+                        <div className="flex items-center justify-between cursor-pointer" onClick={() => toggleManualConcept(key)}>
+                          <div className="flex items-center space-x-2">
+                            {isChecked ? <CheckSquare className="w-4 h-4 text-indigo-600" /> : <Square className="w-4 h-4 text-slate-400" />}
+                            <span>{m.name} {m.year}</span>
+                          </div>
+                          <span className="text-[10px] text-slate-500 font-normal">
+                            ${m.feeUSD_direct} dir. / ${m.feeUSD_bcv} BCV
+                          </span>
                         </div>
-                        <span className="text-[10px] text-slate-500 font-normal">
-                          ${m.feeUSD_direct} dir. / ${m.feeUSD_bcv} BCV
-                        </span>
+                        {isChecked && (
+                          <div className="mt-2 pl-6 flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
+                            <label className="text-[10px] font-semibold text-slate-500">Abonar:</label>
+                            <div className="relative w-32">
+                              <input type="number" step="0.01" className="w-full bg-white border border-indigo-200 rounded px-2 py-1 text-xs text-indigo-900 font-bold focus:outline-none" placeholder="Opcional" value={mConceptAmounts[key] || ''} onChange={(e) => setMConceptAmounts({...mConceptAmounts, [key]: e.target.value})} />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -909,57 +923,57 @@ También informamos que hoy compramos $100 en divisas con bolívares de la cuent
                         const key = `quota:${q.id}`;
                         const isChecked = mSelectedConcepts.includes(key);
                         return (
-                          <div
-                            key={key}
-                            onClick={() => toggleManualConcept(key)}
-                            className={`flex items-center justify-between p-2 rounded-lg text-xs cursor-pointer border transition-all ${
-                              isChecked
-                                ? 'bg-orange-50 border-orange-200 font-bold text-orange-950'
-                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-                            }`}
-                          >
-                            <div className="flex items-center space-x-2">
-                              {isChecked ? (
-                                <CheckSquare className="w-4 h-4 text-orange-600" />
-                              ) : (
-                                <Square className="w-4 h-4 text-slate-400" />
-                              )}
-                              <span>{q.title}</span>
+                          <div key={key} className={`flex flex-col p-2 rounded-lg text-xs border transition-all ${isChecked ? 'bg-orange-50 border-orange-200 font-bold text-orange-950' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'}`}>
+                            <div className="flex items-center justify-between cursor-pointer" onClick={() => toggleManualConcept(key)}>
+                              <div className="flex items-center space-x-2">
+                                {isChecked ? <CheckSquare className="w-4 h-4 text-orange-600" /> : <Square className="w-4 h-4 text-slate-400" />}
+                                <span>{q.title}</span>
+                              </div>
+                              <span className="text-[10px] text-slate-500 font-normal">
+                                ${q.feeUSD_direct || q.feeUSD} USD / ${q.feeUSD_bcv || q.feeUSD} BCV
+                              </span>
                             </div>
-                            <span className="text-[10px] text-slate-500 font-normal">
-                              ${q.feeUSD_direct || q.feeUSD} dir. / ${q.feeUSD_bcv || q.feeUSD} BCV
-                            </span>
+                            {isChecked && (
+                              <div className="mt-2 pl-6 flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
+                                <label className="text-[10px] font-semibold text-slate-500">Abonar:</label>
+                                <div className="relative w-32">
+                                  <input type="number" step="0.01" className="w-full bg-white border border-orange-200 rounded px-2 py-1 text-xs text-orange-900 font-bold focus:outline-none" placeholder="Opcional" value={mConceptAmounts[key] || ''} onChange={(e) => setMConceptAmounts({...mConceptAmounts, [key]: e.target.value})} />
+                                </div>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
                     </>
                   )}
                   
-                  <span className="text-[9px] uppercase font-extrabold text-rose-800 block tracking-wider mt-2.5">Cargos por Atraso</span>
-                  <div
-                    onClick={() => toggleManualConcept('late_fee:global')}
-                    className={`flex items-center justify-between p-2 rounded-lg text-xs cursor-pointer border transition-all ${
-                      mSelectedConcepts.includes('late_fee:global')
-                        ? 'bg-rose-50 border-rose-200 font-bold text-rose-950'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-2">
-                      {mSelectedConcepts.includes('late_fee:global') ? (
-                        <CheckSquare className="w-4 h-4 text-rose-600" />
-                      ) : (
-                        <Square className="w-4 h-4 text-slate-400" />
-                      )}
-                      <span>Multas por Atraso de Mensualidades</span>
-                    </div>
-                    <span className="text-[10px] text-slate-500 font-normal">
-                      Fijado individualmente
-                    </span>
-                  </div>
-
+                  <span className="text-[9px] uppercase font-extrabold text-rose-800 block tracking-wider mt-2.5">Cargos por Atraso (Por Mes)</span>
+                  {months.map((m) => {
+                    const key = `late_fee:${m.id}`;
+                    const isChecked = mSelectedConcepts.includes(key);
+                    return (
+                      <div key={key} className={`flex flex-col p-2 rounded-lg text-xs border transition-all ${isChecked ? 'bg-rose-50 border-rose-200 font-bold text-rose-950' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'}`}>
+                        <div className="flex items-center justify-between cursor-pointer" onClick={() => toggleManualConcept(key)}>
+                          <div className="flex items-center space-x-2">
+                            {isChecked ? <CheckSquare className="w-4 h-4 text-rose-600" /> : <Square className="w-4 h-4 text-slate-400" />}
+                            <span>Multa de {m.name} {m.year}</span>
+                          </div>
+                          <span className="text-[10px] text-slate-500 font-normal">Fijado individualmente</span>
+                        </div>
+                        {isChecked && (
+                          <div className="mt-2 pl-6 flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
+                            <label className="text-[10px] font-semibold text-slate-500">Abonar:</label>
+                            <div className="relative w-32">
+                              <input type="number" step="0.01" className="w-full bg-white border border-rose-200 rounded px-2 py-1 text-xs text-rose-900 font-bold focus:outline-none" placeholder="Opcional" value={mConceptAmounts[key] || ''} onChange={(e) => setMConceptAmounts({...mConceptAmounts, [key]: e.target.value})} />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-
+              
               {/* Amount, currency, method, rate */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div>
