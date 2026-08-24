@@ -494,9 +494,14 @@ export function distributePaymentAcrossConcepts(params: {
         requiredFee_bcv = m.feeUSD_bcv || m.feeUSD || 16;
       }
     } else if (tType === 'late_fee') {
-      targetLabel = 'Multas por Atraso';
-      requiredFee_direct = 0;
-      requiredFee_bcv = 0;
+      if (id === 'global') {
+        targetLabel = 'Multas por Atraso';
+      } else {
+        const m = months.find((m) => m.id === id);
+        targetLabel = m ? `Multa de ${m.name} ${m.year}` : `Multa ${id}`;
+      }
+      requiredFee_direct = 2; // Default fallback for waterfall
+      requiredFee_bcv = 3;    // Default fallback for waterfall
     } else {
       const q = quotas.find((q) => q.id === id);
       targetLabel = q ? q.title : id;

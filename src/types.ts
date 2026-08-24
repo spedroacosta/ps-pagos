@@ -98,7 +98,9 @@ export interface ParsedWhatsAppItem {
   targetType: 'month' | 'quota' | 'late_fee';
   targetId: string;
   targetLabel: string;
-  selectedConcepts?: string[]; // e.g. ["month:2026-06", "quota:sq-1"]
+  selectedConcepts?: string[];
+  manualAllocationsOriginal?: Record<string, number>;
+  conceptAllocationsUSD?: { conceptKey: string; amountUSD: number; }[];
   notes: string;
   approved: boolean;
   isDollarPurchase?: boolean;

@@ -305,7 +305,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                       </div>
                       {isChecked && (
                         <div className="mt-2 pl-6 flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
-                          <label className="text-[10px] font-semibold text-slate-500">Abonar:</label>
+                          <label className="text-[10px] font-semibold text-slate-500">Abonar {currency === 'VES' ? '(Bs.)' : '($)'}:</label>
                           <input type="number" step="0.01" className="w-24 bg-white border border-indigo-200 rounded px-2 py-1 text-xs text-indigo-900 font-bold focus:outline-none" placeholder="Opcional" value={conceptAmounts[key] || ''} onChange={(e) => setConceptAmounts({...conceptAmounts, [key]: e.target.value})} />
                         </div>
                       )}
@@ -330,7 +330,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                           </div>
                           {isChecked && (
                             <div className="mt-2 pl-6 flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
-                              <label className="text-[10px] font-semibold text-slate-500">Abonar:</label>
+                              <label className="text-[10px] font-semibold text-slate-500">Abonar {currency === 'VES' ? '(Bs.)' : '($)'}:</label>
                               <input type="number" step="0.01" className="w-24 bg-white border border-orange-200 rounded px-2 py-1 text-xs text-orange-900 font-bold focus:outline-none" placeholder="Opcional" value={conceptAmounts[key] || ''} onChange={(e) => setConceptAmounts({...conceptAmounts, [key]: e.target.value})} />
                             </div>
                           )}
@@ -355,7 +355,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                       </div>
                       {isChecked && (
                         <div className="mt-2 pl-6 flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
-                          <label className="text-[10px] font-semibold text-slate-500">Abonar:</label>
+                          <label className="text-[10px] font-semibold text-slate-500">Abonar {currency === 'VES' ? '(Bs.)' : '($)'}:</label>
                           <input type="number" step="0.01" className="w-24 bg-white border border-rose-200 rounded px-2 py-1 text-xs text-rose-900 font-bold focus:outline-none" placeholder="Opcional" value={conceptAmounts[key] || ''} onChange={(e) => setConceptAmounts({...conceptAmounts, [key]: e.target.value})} />
                         </div>
                       )}

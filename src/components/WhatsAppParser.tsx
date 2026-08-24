@@ -206,6 +206,18 @@ export const WhatsAppParser: React.FC<WhatsAppParserProps> = ({
       
       const count = concepts.length;
 
+      let manualAllocationsOriginal: Record<string, number> | undefined = item.manualAllocationsOriginal;
+      if (!manualAllocationsOriginal && item.conceptAllocationsUSD && item.conceptAllocationsUSD.length > 0) {
+        manualAllocationsOriginal = {};
+        item.conceptAllocationsUSD.forEach(alloc => {
+           if (item.currency === 'VES') {
+              manualAllocationsOriginal![alloc.conceptKey] = alloc.amountUSD * (item.bcvRate || currentBcvRate);
+           } else {
+              manualAllocationsOriginal![alloc.conceptKey] = alloc.amountUSD;
+           }
+        });
+      }
+
       const distribution = distributePaymentAcrossConcepts({
         memberId: item.matchedMemberId!,
         selectedConcepts: concepts,
@@ -216,6 +228,7 @@ export const WhatsAppParser: React.FC<WhatsAppParserProps> = ({
         months,
         quotas,
         existingPayments: payments,
+        manualAllocationsOriginal,
       });
 
       if (distribution.length > 0) {
@@ -364,6 +377,18 @@ export const WhatsAppParser: React.FC<WhatsAppParserProps> = ({
                 ? item.amountOriginal 
                 : item.amountOriginal / (item.bcvRate || currentBcvRate);
 
+              let manualAllocationsOriginal: Record<string, number> | undefined = item.manualAllocationsOriginal;
+              if (!manualAllocationsOriginal && item.conceptAllocationsUSD && item.conceptAllocationsUSD.length > 0) {
+                manualAllocationsOriginal = {};
+                item.conceptAllocationsUSD.forEach(alloc => {
+                   if (item.currency === 'VES') {
+                      manualAllocationsOriginal![alloc.conceptKey] = alloc.amountUSD * (item.bcvRate || currentBcvRate);
+                   } else {
+                      manualAllocationsOriginal![alloc.conceptKey] = alloc.amountUSD;
+                   }
+                });
+              }
+
               const itemDistribution = distributePaymentAcrossConcepts({
                 memberId: item.matchedMemberId || '',
                 selectedConcepts,
@@ -374,6 +399,7 @@ export const WhatsAppParser: React.FC<WhatsAppParserProps> = ({
                 months,
                 quotas,
                 existingPayments: payments,
+                manualAllocationsOriginal,
               });
 
               return (

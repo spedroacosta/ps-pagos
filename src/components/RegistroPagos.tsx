@@ -906,7 +906,7 @@ También informamos que hoy compramos $100 en divisas con bolívares de la cuent
                         </div>
                         {isChecked && (
                           <div className="mt-2 pl-6 flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
-                            <label className="text-[10px] font-semibold text-slate-500">Abonar:</label>
+                            <label className="text-[10px] font-semibold text-slate-500">Abonar {mCurrency === 'VES' ? '(Bs.)' : '($)'}:</label>
                             <div className="relative w-32">
                               <input type="number" step="0.01" className="w-full bg-white border border-indigo-200 rounded px-2 py-1 text-xs text-indigo-900 font-bold focus:outline-none" placeholder="Opcional" value={mConceptAmounts[key] || ''} onChange={(e) => setMConceptAmounts({...mConceptAmounts, [key]: e.target.value})} />
                             </div>
@@ -935,7 +935,7 @@ También informamos que hoy compramos $100 en divisas con bolívares de la cuent
                             </div>
                             {isChecked && (
                               <div className="mt-2 pl-6 flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
-                                <label className="text-[10px] font-semibold text-slate-500">Abonar:</label>
+                                <label className="text-[10px] font-semibold text-slate-500">Abonar {mCurrency === 'VES' ? '(Bs.)' : '($)'}:</label>
                                 <div className="relative w-32">
                                   <input type="number" step="0.01" className="w-full bg-white border border-orange-200 rounded px-2 py-1 text-xs text-orange-900 font-bold focus:outline-none" placeholder="Opcional" value={mConceptAmounts[key] || ''} onChange={(e) => setMConceptAmounts({...mConceptAmounts, [key]: e.target.value})} />
                                 </div>
@@ -962,7 +962,7 @@ También informamos que hoy compramos $100 en divisas con bolívares de la cuent
                         </div>
                         {isChecked && (
                           <div className="mt-2 pl-6 flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
-                            <label className="text-[10px] font-semibold text-slate-500">Abonar:</label>
+                            <label className="text-[10px] font-semibold text-slate-500">Abonar {mCurrency === 'VES' ? '(Bs.)' : '($)'}:</label>
                             <div className="relative w-32">
                               <input type="number" step="0.01" className="w-full bg-white border border-rose-200 rounded px-2 py-1 text-xs text-rose-900 font-bold focus:outline-none" placeholder="Opcional" value={mConceptAmounts[key] || ''} onChange={(e) => setMConceptAmounts({...mConceptAmounts, [key]: e.target.value})} />
                             </div>

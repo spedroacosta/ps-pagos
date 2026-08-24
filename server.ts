@@ -608,6 +608,16 @@ Devuelve una lista JSON con cada pago, cambio de divisa o egreso detectado.
                     type: Type.ARRAY,
                     items: { type: Type.STRING }
                   },
+                  conceptAllocationsUSD: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        conceptKey: { type: Type.STRING },
+                        amountUSD: { type: Type.NUMBER }
+                      }
+                    }
+                  },
                   notes: { type: Type.STRING },
                   rawTextExcerpt: { type: Type.STRING },
                   isDollarPurchase: { type: Type.BOOLEAN },
