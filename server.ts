@@ -123,12 +123,13 @@ async function findTenant(id: string): Promise<Tenant | null> {
   // Try Firestore first
   if (db) {
     try {
-      const docSnap = await withTimeout(getDoc(doc(db, 'tenants', lowercaseId)), 2000);
+      const docSnap = await withTimeout(getDoc(doc(db, 'tenants', lowercaseId)), 15000);
       if (docSnap.exists() ) {
         return docSnap.data() as Tenant;
       }
     } catch (err) {
       console.error('Error finding tenant in Firestore:', err);
+      throw new Error('Timeout consultando perfil en base de datos. Intenta nuevamente.');
     }
   }
 
@@ -151,7 +152,7 @@ async function saveTenant(tenant: Tenant): Promise<boolean> {
 
   if (db) {
     try {
-      await withTimeout(setDoc(doc(db, 'tenants', lowercaseId), tenant), 2000);
+      await withTimeout(setDoc(doc(db, 'tenants', lowercaseId), tenant), 15000);
       success = true;
     } catch (err) {
       console.error('Error saving tenant to Firestore:', err);
@@ -202,12 +203,13 @@ async function loadTenantConfig(tenantId: string): Promise<TenantConfig> {
 
   if (db) {
     try {
-      const docSnap = await withTimeout(getDoc(doc(db, 'tenants_config', tenantId)), 2000);
+      const docSnap = await withTimeout(getDoc(doc(db, 'tenants_config', tenantId)), 15000);
       if (docSnap.exists() ) {
         return { ...defaultConf, ...docSnap.data() } as TenantConfig;
       }
     } catch (err) {
       console.error('Error loading config from Firestore:', err);
+      throw new Error('Timeout consultando configuración. Intenta nuevamente.');
     }
   }
 
@@ -230,7 +232,7 @@ async function saveTenantConfig(tenantId: string, config: TenantConfig): Promise
   let success = false;
   if (db) {
     try {
-      await withTimeout(setDoc(doc(db, 'tenants_config', tenantId), config), 2000);
+      await withTimeout(setDoc(doc(db, 'tenants_config', tenantId), config), 15000);
       success = true;
     } catch (err) {
       console.error('Error saving config to Firestore:', err);
@@ -929,7 +931,7 @@ async function loadServerData(tenantId: string): Promise<any> {
 
       const docSnaps = await withTimeout(
         Promise.all(docs.map((docName) => getDoc(doc(db, 'tenants_data', cleanTenantId, 'data', docName)))),
-        8000
+        25000
       );
 
       docSnaps.forEach((docSnap, index) => {
@@ -954,6 +956,7 @@ async function loadServerData(tenantId: string): Promise<any> {
       }
     } catch (err) {
       console.error(`Error fetching tenant ${cleanTenantId} from Firestore:`, err);
+      throw new Error('No se pudo conectar a la base de datos Firestore (Posible timeout por inicio en frío). Por favor reintente o recargue la página. ' + (err.message || ''));
     }
   }
 
@@ -1672,7 +1675,7 @@ function fallbackParseWhatsApp(
         usdVal = parseFloat(rawUsd) || 0;
       }
 
-      // Find VES amount (e.g. 88000)
+      // Find VES amount (e.g. 825000)
       const vesMatch =
         cleanBlock.match(/(\d{1,3}(?:\.\d{3})*(?:,\d+)?|\d+(?:[.,]\d+)?)\s*(bs|bolivares|bolívares|ves)/i) ||
         cleanBlock.match(/(bs|bolivares|bolívares|ves)[:.\s]*(\d{1,3}(?:\.\d{3})*(?:,\d+)?|\d+(?:[.,]\d+)?)/i);
