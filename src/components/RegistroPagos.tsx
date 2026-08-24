@@ -371,7 +371,7 @@ export const RegistroPagos: React.FC<RegistroPagosProps> = ({
         memberName,
         method: mMethod,
         paymentDate: mPaymentDate,
-        amountOriginal: numAmount,
+        amountOriginal: finalAmount,
         currency: mCurrency,
         bcvRate: mBcvRate,
         amountUSD: distribution.reduce((sum, d) => sum + d.amountUSD, 0),

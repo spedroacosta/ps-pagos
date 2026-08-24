@@ -570,7 +570,9 @@ REGLAS CRÍTICAS DE EXTRACCIÓN Y RECONOCIMIENTO:
 - Si el mensaje incluye metadatos de WhatsApp (ej: "[5/8/2026, 17:28] Pedro Acosta: ..."), extrae la fecha (5/8/2026 -> paymentDate: "2026-08-05") e IGNORE el nombre del remitente del encabezado para la coincidencia del alumno que pagó.
 
 7. RECONOCIMIENTO DE EGRESOS / GASTOS DE LA PROMOCIÓN:
-- Si el texto describe el pago de una multa o atraso (ej: "multa", "atraso", "penalidad", "pago de multa mes de junio"), asócialo al targetType "late_fee", targetId "global" y targetLabel "Multas por Atraso de Mensualidades".\n- Si el texto describe un egreso, gasto o salida de dinero realizada por el comité/promoción (ej: "Gasto: 50$ en impresiones", "Egreso 1500 bs pago de transporte ref 4892", "Se pagaron 20$ a fotógrafo", "Gastados 4500 bs en decoración", "Pago de servicio de sonido $100", "Gasto de $30 en bebidas"), establece isExpense: true.
+- Si el texto describe el pago de una multa o atraso (ej: "multa", "atraso", "penalidad", "pago de multa mes de junio"), asócialo al targetType "late_fee", targetId "YYYY-MM" del mes al que pertenece la multa.
+- Si el pago incluye múltiples conceptos (Ej: "Multa de Mayo 3$ + Mensualidad Mayo 14$"), utiliza \`selectedConcepts\` (ej: ["late_fee:2026-05", "month:2026-05"]) Y ADEMÁS llena \`conceptAllocationsUSD\` especificando los dólares asignados a cada uno.
+- Si el texto describe un egreso, gasto o salida de dinero realizada por el comité/promoción (ej: "Gasto: 50$ en impresiones", "Egreso 1500 bs pago de transporte ref 4892", "Se pagaron 20$ a fotógrafo", "Gastados 4500 bs en decoración", "Pago de servicio de sonido $100", "Gasto de $30 en bebidas"), establece isExpense: true.
 - Asigna expenseCategory ("Logística", "Eventos", "Administrativo", "Protocolo", "Imprevistos") y expenseDescription con el concepto detallado del gasto.
 
 MENSAJES DE WHATSAPP A ANALIZAR:
@@ -2050,7 +2052,9 @@ REGLAS CRÍTICAS DE EXTRACCIÓN Y RECONOCIMIENTO:
 - Si el mensaje incluye metadatos de WhatsApp (ej: "[5/8/2026, 17:28] Pedro Acosta: ..."), extrae la fecha (5/8/2026 -> paymentDate: "2026-08-05") e IGNORE el nombre del remitente del encabezado para la coincidencia del alumno que pagó.
 
 7. RECONOCIMIENTO DE EGRESOS / GASTOS DE LA PROMOCIÓN:
-- Si el texto describe el pago de una multa o atraso (ej: "multa", "atraso", "penalidad", "pago de multa mes de junio"), asócialo al targetType "late_fee", targetId "global" y targetLabel "Multas por Atraso de Mensualidades".\n- Si el texto describe un egreso, gasto o salida de dinero realizada por el comité/promoción (ej: "Gasto: 50$ en impresiones", "Egreso 1500 bs pago de transporte ref 4892", "Se pagaron 20$ a fotógrafo", "Gastados 4500 bs en decoración", "Pago de servicio de sonido $100"), establece isExpense: true.
+- Si el texto describe el pago de una multa o atraso (ej: "multa", "atraso", "penalidad", "pago de multa mes de junio"), asócialo al targetType "late_fee", targetId "YYYY-MM" del mes al que pertenece la multa.
+- Si el pago incluye múltiples conceptos (Ej: "Multa de Mayo 3$ + Mensualidad Mayo 14$"), utiliza \`selectedConcepts\` (ej: ["late_fee:2026-05", "month:2026-05"]) Y ADEMÁS llena \`conceptAllocationsUSD\` especificando los dólares asignados a cada uno.
+- Si el texto describe un egreso, gasto o salida de dinero realizada por el comité/promoción (ej: "Gasto: 50$ en impresiones", "Egreso 1500 bs pago de transporte ref 4892", "Se pagaron 20$ a fotógrafo", "Gastados 4500 bs en decoración", "Pago de servicio de sonido $100"), establece isExpense: true.
 - Asigna expenseCategory ("Logística", "Eventos", "Administrativo", "Protocolo", "Imprevistos") y expenseDescription con el concepto detallado del gasto.
 
 MENSAJES DE WHATSAPP A ANALIZAR:
@@ -2089,7 +2093,18 @@ Devuelve una lista JSON con cada pago, cambio de divisa o egreso detectado.
                 selectedConcepts: {
                   type: Type.ARRAY,
                   items: { type: Type.STRING },
-                  description: 'Lista de conceptos seleccionados en formato "type:id" (ej: ["quota:sq-1", "month:2026-05", "month:2026-06"]) en orden de prioridad o desglose indicado por el usuario'
+                  description: 'Lista de conceptos seleccionados en formato "type:id" (ej: ["quota:sq-1", "month:2026-05", "late_fee:2026-05"])'
+                },
+                conceptAllocationsUSD: {
+                  type: Type.ARRAY,
+                  description: 'Cantidades EXACTAS en DÓLARES asignadas a cada bolsillo (concepto) según la descripción del usuario. Solo incluir si el usuario define expresamente los montos. Ej: [{"conceptKey": "late_fee:2026-05", "amountUSD": 3}, {"conceptKey": "month:2026-05", "amountUSD": 14}]',
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      conceptKey: { type: Type.STRING },
+                      amountUSD: { type: Type.NUMBER }
+                    }
+                  }
                 },
                 notes: { type: Type.STRING, description: 'Nota o resumen del pago con el desglose si aplica' },
                 rawTextExcerpt: { type: Type.STRING, description: 'Fragmento de texto original de donde se extrajo este pago' },

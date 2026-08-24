@@ -131,11 +131,16 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     const filteredPayments = editingPayment
       ? payments.filter((p) => p.id !== editingPayment.id)
       : payments;
+    const manualAllocationsOriginal = Object.fromEntries(Object.entries(conceptAmounts).map(([k, v]) => [k, parseFloat(v) || 0]));
+    let finalAmount = numAmount;
+    if (Object.keys(manualAllocationsOriginal).length > 0 && finalAmount === 0) {
+      finalAmount = Object.values(manualAllocationsOriginal).reduce((a, b) => a + b, 0);
+    }
     return distributePaymentAcrossConcepts({
       memberId,
       selectedConcepts,
-      manualAllocationsOriginal: Object.fromEntries(Object.entries(conceptAmounts).map(([k, v]) => [k, parseFloat(v) || 0])),
-      amountOriginal: numAmount,
+      manualAllocationsOriginal,
+      amountOriginal: finalAmount,
       currency,
       method,
       bcvRate,
@@ -188,7 +193,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         memberName,
         method,
         paymentDate,
-        amountOriginal: numAmount,
+        amountOriginal: finalAmount,
         currency,
         bcvRate,
         amountUSD: calculatedUSD,
@@ -212,7 +217,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         memberName,
         method,
         paymentDate,
-        amountOriginal: numAmount,
+        amountOriginal: finalAmount,
         currency,
         bcvRate,
         amountUSD: calculatedUSD,

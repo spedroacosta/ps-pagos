@@ -1,76 +1,46 @@
 const fs = require('fs');
 let code = fs.readFileSync('src/utils/calculations.ts', 'utf-8');
 
-const distSignature = `export function distributePaymentAcrossConcepts(params: {
-  memberId: string;
-  selectedConcepts: string[];
-  amountOriginal: number;
-  currency: 'USD' | 'VES';
-  method: string;
-  bcvRate: number;
-  months: MonthConfig[];
-  quotas: SpecialQuota[];
-  existingPayments?: PaymentEntry[];
-}): ConceptDistributionItem[] {`;
+const regex = /        results\.push\(\{\n          targetType: tType,\n          targetId: id,\n          targetLabel,\n          amountOriginal: alloc,\n          amountUSD: isDirectUsd \? alloc : \(alloc \/ bcvRate\)\n        \}\);/g;
 
-const distReplacement = `export function distributePaymentAcrossConcepts(params: {
-  memberId: string;
-  selectedConcepts: string[];
-  amountOriginal: number;
-  currency: 'USD' | 'VES';
-  method: string;
-  bcvRate: number;
-  months: MonthConfig[];
-  quotas: SpecialQuota[];
-  existingPayments?: PaymentEntry[];
-  manualAllocationsOriginal?: Record<string, number>;
-}): ConceptDistributionItem[] {`;
-
-code = code.replace(distSignature, distReplacement);
-
-const waterfallStart = `  const isDirectUsd = currency === 'USD' || ['efectivo_usd', 'binance', 'zelle', 'banesco_panama'].includes(method);
-  
-  // Total original currency pool to distribute (either USD or VES)`;
-
-const waterfallReplacement = `  const isDirectUsd = currency === 'USD' || ['efectivo_usd', 'binance', 'zelle', 'banesco_panama'].includes(method);
-  
-  if (params.manualAllocationsOriginal && Object.keys(params.manualAllocationsOriginal).length > 0) {
-    const results: ConceptDistributionItem[] = [];
-    for (const key of selectedConcepts) {
-      const alloc = params.manualAllocationsOriginal[key];
-      if (alloc && alloc > 0) {
-        const [type, id] = key.split(':');
-        const tType = type as 'month' | 'quota' | 'late_fee';
-        let targetLabel = id;
+const replacement = `
+        let requiredFee_direct = 12;
+        let requiredFee_bcv = 16;
         if (tType === 'month') {
           const m = months.find((m) => m.id === id);
-          if (m) targetLabel = \`\${m.name} \${m.year}\`;
-        } else if (tType === 'quota') {
-          const q = quotas.find((q) => q.id === id);
-          if (q) targetLabel = q.title;
+          if (m) {
+            requiredFee_direct = m.feeUSD_direct || m.feeUSD || 12;
+            requiredFee_bcv = m.feeUSD_bcv || m.feeUSD || 16;
+          }
         } else if (tType === 'late_fee') {
-          if (id === 'global') {
-            targetLabel = 'Multas por Atraso';
-          } else {
-            const m = months.find((m) => m.id === id);
-            targetLabel = m ? \`Multa de \${m.name} \${m.year}\` : \`Multa \${id}\`;
+          requiredFee_direct = 2; // Default fallback for waterfall
+          requiredFee_bcv = 3;    // Default fallback for waterfall
+        } else {
+          const q = quotas.find((q) => q.id === id);
+          if (q) {
+            requiredFee_direct = q.feeUSD_direct || q.feeUSD || 0;
+            requiredFee_bcv = q.feeUSD_bcv || q.feeUSD_direct || 0;
           }
         }
-        
+
+        let allocDirectUSD = 0;
+        if (isDirectUsd) {
+          allocDirectUSD = alloc;
+        } else {
+          if (requiredFee_bcv > 0 && bcvRate > 0) {
+            allocDirectUSD = (alloc / bcvRate) * (requiredFee_direct / requiredFee_bcv);
+          } else {
+            allocDirectUSD = (alloc / bcvRate);
+          }
+        }
+
         results.push({
           targetType: tType,
           targetId: id,
           targetLabel,
           amountOriginal: alloc,
-          amountUSD: isDirectUsd ? alloc : (alloc / bcvRate)
-        });
-      }
-    }
-    return results;
-  }
-  
-  // Total original currency pool to distribute (either USD or VES)`;
+          amountUSD: allocDirectUSD
+        });`;
 
-code = code.replace(waterfallStart, waterfallReplacement);
-
+code = code.replace(regex, replacement);
 fs.writeFileSync('src/utils/calculations.ts', code);
