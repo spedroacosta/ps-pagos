@@ -52,6 +52,7 @@ export const SuperAdminPanel: React.FC<SuperAdminPanelProps> = ({ token, onLogou
   // Form states
   const [formId, setFormId] = useState('');
   const [formName, setFormName] = useState('');
+  const [formAdminEmail, setFormAdminEmail] = useState('');
   const [formPassword, setFormPassword] = useState('');
   const [formLicenseKey, setFormLicenseKey] = useState('TRIAL');
   const [formExpiresAt, setFormExpiresAt] = useState('');
@@ -178,6 +179,7 @@ export const SuperAdminPanel: React.FC<SuperAdminPanelProps> = ({ token, onLogou
         body: JSON.stringify({
           tenantId: formId.trim().toLowerCase(),
           name: formName.trim(),
+          adminEmail: formAdminEmail.trim(),
           password: formPassword.trim(),
           licenseKey: formLicenseKey.trim() || 'TRIAL',
           expiresAt: formExpiresAt ? new Date(formExpiresAt).toISOString() : undefined
@@ -217,7 +219,9 @@ export const SuperAdminPanel: React.FC<SuperAdminPanelProps> = ({ token, onLogou
           'x-superadmin-token': token
         },
         body: JSON.stringify({
+          newId: formId.trim().toLowerCase(),
           name: formName.trim(),
+          adminEmail: formAdminEmail.trim(),
           password: formPassword.trim(),
           licenseKey: formLicenseKey.trim(),
           expiresAt: new Date(formExpiresAt).toISOString()
@@ -276,6 +280,7 @@ export const SuperAdminPanel: React.FC<SuperAdminPanelProps> = ({ token, onLogou
   const resetForm = () => {
     setFormId('');
     setFormName('');
+    setFormAdminEmail('');
     setFormPassword('');
     setFormLicenseKey('TRIAL');
     // Set default expires to +30 days

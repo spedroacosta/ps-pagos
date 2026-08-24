@@ -79,8 +79,12 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   let feeDirect = 12;
   let feeBcv = 16;
   let targetTitle = 'Mensualidad';
+  const isTransactionMode = selectedTargetId.startsWith('tx-');
+  const selectedTx = isTransactionMode ? memberPayments.find(p => p.id === selectedTargetId.replace('tx-', '')) : null;
 
-  if (selectedMonth) {
+  if (isTransactionMode && selectedTx) {
+    targetTitle = selectedTx.targetLabel || 'Pago Multi-concepto';
+  } else if (selectedMonth) {
     feeDirect = selectedMonth.feeUSD_direct || selectedMonth.feeUSD || 12;
     feeBcv = selectedMonth.feeUSD_bcv || selectedMonth.feeUSD_direct || 12;
     targetTitle = `Mensualidad de ${selectedMonth.name} ${selectedMonth.year}`;
@@ -100,7 +104,9 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   }
 
   // Determine actual paid and debt from pre-calculated solvency summary to account for bulk/initial imports
-  const totalPaidForTarget = computedStatus ? computedStatus.paidUSD : targetPayments.reduce((sum, p) => sum + p.amountUSD, 0);
+  const totalPaidForTarget = isTransactionMode && selectedTx 
+    ? selectedTx.amountUSD 
+    : computedStatus ? computedStatus.paidUSD : targetPayments.reduce((sum, p) => sum + p.amountUSD, 0);
   const isSolventForTarget = computedStatus ? (computedStatus.status === 'solvente') : (totalPaidForTarget >= requiredFee - 0.01);
   const debtForTarget = computedStatus ? computedStatus.owedUSD : Math.max(0, requiredFee - totalPaidForTarget);
 
@@ -108,8 +114,20 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   const hasBulkContribution = computedStatus && computedStatus.paidUSD > directPaidUSD + 0.01;
 
   // Build the list of display transactions including bulk payments if they helped cover this concept
-  const displayPayments = [...targetPayments];
-  if (hasBulkContribution) {
+  const displayPayments = isTransactionMode && selectedTx 
+    ? (selectedTx.breakdown ? selectedTx.breakdown.map((b, i) => ({
+        id: selectedTx.id + '-' + i,
+        reference: selectedTx.reference,
+        paymentDate: selectedTx.paymentDate,
+        amountUSD: b.amountUSD,
+        amountOriginal: b.amountOriginal,
+        currency: selectedTx.currency,
+        method: selectedTx.method,
+        notes: b.targetLabel,
+      } as PaymentEntry)) : [selectedTx])
+    : [...targetPayments];
+
+  if (hasBulkContribution && !isTransactionMode) {
     memberBulkPayments.forEach((bp) => {
       if (!displayPayments.some((dp) => dp.id === bp.id)) {
         displayPayments.push(bp);
@@ -355,9 +373,17 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                 ))}
               </optgroup>
             )}
+            {memberPayments.length > 0 && (
+              <optgroup label="Transacciones Recientes">
+                {memberPayments.map((p) => (
+                  <option key={'tx-' + p.id} value={'tx-' + p.id}>
+                      {p.paymentDate} - {p.reference} ({p.currency === 'VES' ? p.amountOriginal + ' Bs' : p.amountOriginal + ' $'})
+                  </option>
+                ))} 
+              </optgroup>
+            )}
           </select>
         </div>
-
         {/* Email status feedback message */}
         {emailStatus && (
           <div className="mx-6 mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 font-medium flex items-center justify-between print:hidden shadow-xs">
@@ -365,7 +391,6 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
             <button onClick={() => setEmailStatus(null)} className="text-emerald-700 font-bold cursor-pointer">✕</button>
           </div>
         )}
-
         {/* Printable Receipt Canvas */}
         <div id="printable-invoice" className="p-10 bg-white text-slate-900 font-sans max-w-[800px] mx-auto select-none border border-slate-100 space-y-6">
           {/* Header Row */}
@@ -384,7 +409,6 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                 </p>
               </div>
             </div>
-
             {/* Right: Logos */}
             <div className="flex items-center space-x-3">
               <img
@@ -470,7 +494,9 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                           <div key={p.id} className="flex justify-between text-[10px] bg-slate-50 p-2 rounded-sm border border-slate-200/60">
                             <div>
                               <span className="font-bold text-slate-800">
-                                {p.reference === 'INICIAL' || p.id.startsWith('init-p-') || (p.notes && p.notes.toLowerCase().includes('masiva'))
+                                {isTransactionMode 
+                                  ? p.notes || `Abono (${getMethodLabel(p.method)})`
+                                  : p.reference === 'INICIAL' || p.id.startsWith('init-p-') || (p.notes && p.notes.toLowerCase().includes('masiva'))
                                   ? 'Abono de Solvencia Inicial'
                                   : `Pago (${getMethodLabel(p.method)})`}
                               </span>
@@ -542,4 +568,3 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
     </div>
   );
 };
-

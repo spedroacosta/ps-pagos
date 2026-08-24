@@ -849,19 +849,11 @@ También informamos que hoy compramos $100 en divisas con bolívares de la cuent
                   <label className="block text-[10px] font-extrabold uppercase text-slate-500 mb-1">
                     Integrante <span className="text-rose-600">*</span>
                   </label>
-                  <select
-                    value={mMemberId}
-                    onChange={(e) => setMMemberId(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-950 focus:outline-none focus:ring-2 focus:ring-rose-500/20"
-                    required
-                  >
-                    <option value="">-- Selecciona un integrante --</option>
-                    {members.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.lastName}, {m.firstName} ({m.cedula || 'Sin Cédula'})
-                      </option>
-                    ))}
-                  </select>
+                  <SearchableMemberSelect 
+                    members={members} 
+                    value={mMemberId} 
+                    onChange={setMMemberId} 
+                  />
                 </div>
 
                 <div>

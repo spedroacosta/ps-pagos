@@ -41,7 +41,7 @@ export const PublicQueryPortal: React.FC<PublicQueryPortalProps> = ({
 
   // Loaded member query data
   const [queryResult, setQueryResult] = useState<{
-    tenant: { id: string; name: string; logoUrl: string | null };
+    tenant: { id: string; name: string; logoUrl: string | null; circularLogoUrl?: string | null };
     member: Member;
     months: MonthConfig[];
     quotas: SpecialQuota[];
@@ -154,7 +154,7 @@ export const PublicQueryPortal: React.FC<PublicQueryPortalProps> = ({
           <div className="flex items-center space-x-3">
             {queryResult?.tenant.logoUrl ? (
               <img
-                src={queryResult.tenant.logoUrl}
+                src={queryResult.tenant.circularLogoUrl || queryResult.tenant.logoUrl}
                 alt="Logo"
                 referrerPolicy="no-referrer"
                 className="w-10 h-10 rounded-full bg-white object-cover border border-[#d95c0f]"
@@ -584,7 +584,7 @@ export const PublicQueryPortal: React.FC<PublicQueryPortalProps> = ({
                   <div className="flex items-center space-x-2">
                     {queryResult.tenant.logoUrl ? (
                       <img
-                        src={queryResult.tenant.logoUrl}
+                        src={queryResult.tenant.circularLogoUrl || queryResult.tenant.logoUrl}
                         alt="Logo"
                         referrerPolicy="no-referrer"
                         className="w-10 h-10 rounded-full bg-white object-cover border border-[#d95c0f]"

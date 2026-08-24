@@ -337,10 +337,12 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
       const dateStr = new Date().toISOString().split('T')[0];
       const fileName = `control_pagos_respaldo_${dateStr}.json`;
 
+      const driveToken = localStorage.getItem('driveToken');
       const response = await fetch('/api/backup/drive', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': driveToken ? `Bearer ${driveToken}` : '',
           ...getTenantHeaders()
         },
         body: JSON.stringify({ fileName, fileContent: dataStr })
@@ -1426,8 +1428,7 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
       {/* --- Tab Panel: Monthly Fees & Special Quotas --- */}
       {activeSubTab === 'fees' && (
         <div className="space-y-6">
-          {/* Conversions & Rule of 3 Calculator */}
-          <ConversionCalculator months={months} currentBcvRate={bcvRate} />
+
 
           {/* Monthly Fees Manager */}
           <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">

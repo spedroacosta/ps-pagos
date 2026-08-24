@@ -59,7 +59,7 @@ export const ResumenSolvencia: React.FC<ResumenSolvenciaProps> = ({
 }) => {
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'solvent' | 'debt' | 'partial'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'solvent' | 'debt' | 'partial' | 'fined'>('all');
 
   // Selected Months state for custom column visibility (defaults dynamically to past & current months)
   const [selectedMonthIds, setSelectedMonthIds] = useState<string[]>(() => {
@@ -445,6 +445,16 @@ export const ResumenSolvencia: React.FC<ResumenSolvenciaProps> = ({
             }`}
           >
             Morosos ({totalMembers - solventMembers})
+          </button>
+          <button
+            onClick={() => setStatusFilter('fined')}
+            className={`px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
+              statusFilter === 'fined'
+                ? 'bg-fuchsia-700 text-white font-semibold shadow-2xs'
+                : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            Multados
           </button>
         </div>
 
