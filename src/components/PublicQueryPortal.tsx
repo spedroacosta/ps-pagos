@@ -23,6 +23,7 @@ import {
 import { Member, MonthConfig, SpecialQuota, PaymentEntry, MemberSolvencySummary, LateFeeConfig } from '../types';
 import { calculateMemberSolvency, formatUSD, formatVES, getMethodLabel } from '../utils/calculations';
 import { ConversionCalculator } from './ConversionCalculator';
+import { InvoiceModal } from './InvoiceModal';
 
 interface PublicQueryPortalProps {
   tenantId: string;

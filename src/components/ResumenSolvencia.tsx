@@ -165,11 +165,12 @@ export const ResumenSolvencia: React.FC<ResumenSolvenciaProps> = ({
   // Filtered list
   const filteredSummaries = useMemo(() => {
     return memberSummariesWithVisibleDebt.filter((s) => {
+      const q = searchQuery.toLowerCase();
       const nameMatch =
-        (s.member.lastName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (s.member.firstName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.member.cedula?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.member.email?.toLowerCase().includes(searchQuery.toLowerCase());
+        (s.member.lastName || '').toLowerCase().includes(q) ||
+        (s.member.firstName || '').toLowerCase().includes(q) ||
+        String(s.member.cedula || '').toLowerCase().includes(q) ||
+        (s.member.email || '').toLowerCase().includes(q);
 
       if (!nameMatch) return false;
 
@@ -180,7 +181,9 @@ export const ResumenSolvencia: React.FC<ResumenSolvenciaProps> = ({
         const hasPartialQuota = visibleQuotas.some((q) => s.quotasStatus[q.id]?.status === 'parcial');
         return hasPartialMonth || hasPartialQuota;
       }
-      if (statusFilter === 'fined') return (s.lateFeesSummary?.owedLateFeesUSD || 0) > 0.01;
+      if (statusFilter === 'fined') {
+        return (s.lateFeesSummary?.owedLateFeesUSD || 0) > 0.01 || (s.lateFeesSummary?.lateFeesCount || 0) > 0;
+      }
       return true;
     });
   }, [memberSummariesWithVisibleDebt, searchQuery, statusFilter, visibleMonths, visibleQuotas]);
@@ -188,6 +191,9 @@ export const ResumenSolvencia: React.FC<ResumenSolvenciaProps> = ({
   // Overall Statistics calculated strictly from visible months
   const totalMembers = members.length;
   const solventMembers = memberSummariesWithVisibleDebt.filter((s) => s.isVisibleSolvent).length;
+  const finedMembersCount = memberSummariesWithVisibleDebt.filter(
+    (s) => (s.lateFeesSummary?.owedLateFeesUSD || 0) > 0.01 || (s.lateFeesSummary?.lateFeesCount || 0) > 0
+  ).length;
   const percentSolvent = totalMembers > 0 ? Math.round((solventMembers / totalMembers) * 100) : 0;
   const totalCollectiveDebt = memberSummariesWithVisibleDebt.reduce((sum, s) => sum + s.visibleOwedUSD, 0);
 
@@ -454,7 +460,7 @@ export const ResumenSolvencia: React.FC<ResumenSolvenciaProps> = ({
                 : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
             }`}
           >
-            Multados
+            Multados ({finedMembersCount})
           </button>
         </div>
 

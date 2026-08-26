@@ -7,6 +7,7 @@ import {
 interface SuperTenant {
   id: string;
   name: string;
+  adminEmail?: string;
   createdAt: string;
   licenseKey: string;
   expiresAt: string;

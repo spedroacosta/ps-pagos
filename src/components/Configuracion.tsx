@@ -319,6 +319,10 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
   // Backup & Restore states
   const [isRestoring, setIsRestoring] = useState(false);
   const [isDriveBackingUp, setIsDriveBackingUp] = useState(false);
+  const [autoDriveBackupEnabled, setAutoDriveBackupEnabled] = useState(() => {
+    const key = 'autoDriveBackupEnabled_' + (tenantId || 'original');
+    return localStorage.getItem(key) === 'true';
+  });
 
   const handleDriveBackup = async () => {
     try {
@@ -2251,8 +2255,32 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
                   className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-xs transition-all cursor-pointer w-full disabled:opacity-50"
                 >
                   <Upload className="w-3.5 h-3.5" />
-                  <span>{isDriveBackingUp ? 'Subiendo...' : 'Respaldar en Google Drive'}</span>
+                  <span>{isDriveBackingUp ? 'Subiendo...' : 'Respaldar Manualmente en Google Drive'}</span>
                 </button>
+
+                {/* Daily Auto-Backup Toggle */}
+                <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
+                  <label className="flex items-center justify-between p-2.5 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+                    <div className="pr-2">
+                      <span className="text-xs font-bold text-slate-800 block">Respaldos Automáticos Diarios</span>
+                      <span className="text-[10px] text-slate-500 block">Ejecuta una copia silenciosa en Google Drive al iniciar sesión cada día</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={autoDriveBackupEnabled}
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        setAutoDriveBackupEnabled(val);
+                        const key = 'autoDriveBackupEnabled_' + (tenantId || 'original');
+                        localStorage.setItem(key, val ? 'true' : 'false');
+                        if (val && !localStorage.getItem('driveToken')) {
+                          alert('💡 Recuerda: Para que los respaldos automáticos se suban exitosamente a tu cuenta de Google Drive, debes haber iniciado sesión previamente usando el botón "Iniciar Sesión con Google".');
+                        }
+                      }}
+                      className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer"
+                    />
+                  </label>
+                </div>
               </div>
             </div>
 

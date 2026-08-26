@@ -14,6 +14,7 @@ interface InvoiceModalProps {
   months: MonthConfig[];
   quotas: SpecialQuota[];
   payments: PaymentEntry[];
+  initialTargetId?: string;
 }
 
 export const InvoiceModal: React.FC<InvoiceModalProps> = ({
@@ -24,6 +25,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   months,
   quotas,
   payments,
+  initialTargetId,
 }) => {
   const rawMemberPaymentsInit = payments.filter(p => p.memberId === member?.id);
   const latestTx = rawMemberPaymentsInit.length > 0 ? rawMemberPaymentsInit[rawMemberPaymentsInit.length - 1] : null;
@@ -82,7 +84,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   let feeBcv = 16;
   let targetTitle = 'Mensualidad';
   const isTransactionMode = selectedTargetId.startsWith('tx-');
-  const selectedTx = isTransactionMode ? memberPayments.find(p => p.id === selectedTargetId.replace('tx-', '')) : null;
+  const selectedTx = isTransactionMode ? rawMemberPayments.find(p => p.id === selectedTargetId.replace('tx-', '')) : null;
 
   if (isTransactionMode && selectedTx) {
     targetTitle = selectedTx.targetLabel || 'Pago de Transacción';
@@ -358,9 +360,18 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
           <select
             value={selectedTargetId}
             onChange={(e) => setSelectedTargetId(e.target.value)}
-            className="w-full sm:w-64 bg-white border border-slate-300 text-slate-900 rounded-xl px-3 py-1.5 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+            className="w-full sm:w-72 bg-white border border-slate-300 text-slate-900 rounded-xl px-3 py-1.5 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
           >
-            <optgroup label="Mensualidades">
+            {rawMemberPayments.length > 0 && (
+              <optgroup label="Facturas por Movimiento / Transacción">
+                {rawMemberPayments.map((p) => (
+                  <option key={'tx-' + p.id} value={'tx-' + p.id}>
+                    {p.paymentDate} - Ref: {p.reference || 'S/R'} - {p.targetLabel || 'Pago'} ({p.currency === 'VES' ? p.amountOriginal + ' Bs' : '$' + p.amountUSD + ' USD'})
+                  </option>
+                ))} 
+              </optgroup>
+            )}
+            <optgroup label="Resumen por Mensualidad">
               {months.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name} {m.year} (${m.feeUSD_direct || m.feeUSD || 12} directos / ${m.feeUSD_bcv || 16} BCV)
@@ -368,21 +379,12 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
               ))}
             </optgroup>
             {quotas.length > 0 && (
-              <optgroup label="Cuotas Especiales">
+              <optgroup label="Resumen por Cuota Especial">
                 {quotas.map((q) => (
                   <option key={q.id} value={q.id}>
                     {q.title} (${q.feeUSD})
                   </option>
                 ))}
-              </optgroup>
-            )}
-            {memberPayments.length > 0 && (
-              <optgroup label="Transacciones Recientes">
-                {memberPayments.map((p) => (
-                  <option key={'tx-' + p.id} value={'tx-' + p.id}>
-                      {p.paymentDate} - {p.reference} ({p.currency === 'VES' ? p.amountOriginal + ' Bs' : p.amountOriginal + ' $'})
-                  </option>
-                ))} 
               </optgroup>
             )}
           </select>

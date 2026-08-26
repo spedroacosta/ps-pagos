@@ -78,6 +78,9 @@ export interface Tenant {
   createdAt: string;
   licenseKey: string; // TRIAL or custom key
   expiresAt: string;
+  adminEmail?: string;
+  logoUrl?: string;
+  logoCircularUrl?: string;
 }
 
 export interface SmtpConfig {
@@ -2908,6 +2911,7 @@ app.get('/api/superadmin/tenants', superAdminAuthMiddleware, async (req, res) =>
         result.push({
           id: t.id,
           name: t.name,
+          adminEmail: t.adminEmail || '',
           createdAt: t.createdAt || new Date().toISOString(),
           licenseKey: t.licenseKey || 'TRIAL',
           expiresAt: t.expiresAt,
@@ -2920,6 +2924,7 @@ app.get('/api/superadmin/tenants', superAdminAuthMiddleware, async (req, res) =>
         result.push({
           id: t.id,
           name: t.name,
+          adminEmail: t.adminEmail || '',
           createdAt: t.createdAt || new Date().toISOString(),
           licenseKey: t.licenseKey || 'TRIAL',
           expiresAt: t.expiresAt,
@@ -2964,6 +2969,7 @@ app.post('/api/superadmin/tenants', superAdminAuthMiddleware, async (req, res) =
       createdAt: new Date().toISOString(),
       licenseKey: licenseKey ? licenseKey.trim() : 'TRIAL',
       expiresAt: defaultExpiresAt,
+      adminEmail: adminEmail ? adminEmail.trim() : '',
     };
 
     const saved = await saveTenant(newTenant);

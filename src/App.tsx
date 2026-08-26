@@ -330,9 +330,9 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
             const exps = Array.isArray(json.data.expenses) ? json.data.expenses : [];
             
             // Check for Auto Backup
-            const autoBackupEnabled = localStorage.getItem('autoBackupDrive') === 'true';
+            const autoBackupEnabled = localStorage.getItem('autoBackupDrive') === 'true' || localStorage.getItem('autoDriveBackupEnabled_' + tenantId) === 'true';
             const todayStr = new Date().toISOString().split('T')[0];
-            const lastBackupStr = localStorage.getItem('lastAutoBackupDate');
+            const lastBackupStr = localStorage.getItem('lastAutoDriveBackupDate_' + tenantId) || localStorage.getItem('lastAutoBackupDate');
             const driveToken = localStorage.getItem('driveToken');
             
             if (autoBackupEnabled && driveToken && lastBackupStr !== todayStr) {
@@ -345,7 +345,7 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
                     ...getTenantHeaders()
                   },
                   body: JSON.stringify({ 
-                    fileName: `control_pagos_respaldo_${todayStr}.json`, 
+                    fileName: `control_pagos_respaldo_${tenantId}_${todayStr}.json`, 
                     fileContent: JSON.stringify({
                       members: mems,
                       months: Array.isArray(json.data.months) && json.data.months.length > 0 ? json.data.months : [],
@@ -358,9 +358,11 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
                     }, null, 2) 
                   })
                }).then(r => r.json()).then(res => {
-                  if (res.success || res.id) {
+                  if (res.success || res.fileId || res.id) {
                      console.log("Auto backup successful.");
                      localStorage.setItem('lastAutoBackupDate', todayStr);
+                     localStorage.setItem('autoDriveBackupEnabled_' + tenantId, 'true');
+                     localStorage.setItem('lastAutoDriveBackupDate_' + tenantId, todayStr);
                   }
                }).catch(e => console.error("Auto backup failed:", e));
             }
