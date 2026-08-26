@@ -20,8 +20,6 @@ import {
   User,
   Calculator,
 } from 'lucide-react';
-import html2canvas from 'html2canvas-pro';
-import { jsPDF } from 'jspdf';
 import { Member, MonthConfig, SpecialQuota, PaymentEntry, MemberSolvencySummary, LateFeeConfig } from '../types';
 import { calculateMemberSolvency, formatUSD, formatVES, getMethodLabel } from '../utils/calculations';
 import { ConversionCalculator } from './ConversionCalculator';
@@ -51,8 +49,8 @@ export const PublicQueryPortal: React.FC<PublicQueryPortalProps> = ({
 
   // Printable receipt state
   const [selectedReceiptTargetId, setSelectedReceiptTargetId] = useState<string | null>(null);
-  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
-  const [isCalcOpen, setIsCalcOpen] = useState(false);
+  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+    const [isCalcOpen, setIsCalcOpen] = useState(false);
   const [portalBcvRate, setPortalBcvRate] = useState<number>(61.5);
 
   useEffect(() => {
@@ -115,36 +113,7 @@ export const PublicQueryPortal: React.FC<PublicQueryPortalProps> = ({
     : 100;
 
   // Render receipt download logic inside modal
-  const handleDownloadReceiptPDF = async (receiptNum: string) => {
-    const element = document.getElementById('printable-receipt-canvas');
-    if (!element) return;
-
-    setIsGeneratingPDF(true);
-    try {
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff',
-      });
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4',
-      });
-
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`${receiptNum}.pdf`);
-    } catch (err) {
-      console.error('Error generating PDF:', err);
-    } finally {
-      setIsGeneratingPDF(false);
-    }
-  };
+  
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
@@ -537,7 +506,10 @@ export const PublicQueryPortal: React.FC<PublicQueryPortalProps> = ({
                           </td>
                           <td className="px-3 py-2.5 text-center">
                             <button
-                              onClick={() => setSelectedReceiptTargetId(p.targetId)}
+                              onClick={() => {
+                                setSelectedReceiptTargetId('tx-' + p.id);
+                                setIsInvoiceModalOpen(true);
+                              }}
                               className="inline-flex items-center space-x-1 font-bold text-[10px] text-orange-600 bg-orange-50 hover:bg-[#162e58] hover:text-white px-2 py-1 rounded border border-orange-100 transition-colors cursor-pointer"
                             >
                               <FileText className="w-3 h-3" />
@@ -557,243 +529,24 @@ export const PublicQueryPortal: React.FC<PublicQueryPortalProps> = ({
       </main>
 
       {/* Printable Receipt Preview Overlay Modal */}
-      {selectedReceiptTargetId && queryResult && solvencySummary && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-lg w-full flex flex-col overflow-hidden max-h-[90vh]">
-            
-            {/* Modal Header */}
-            <div className="bg-[#162e58] text-white px-4 py-3 flex items-center justify-between border-b-2 border-orange-500">
-              <span className="font-bold text-xs">Comprobante de Pago Electrónico</span>
-              <button
-                onClick={() => setSelectedReceiptTargetId(null)}
-                className="text-slate-300 hover:text-white cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Modal Scrollable Canvas Wrapper */}
-            <div className="p-4 flex-1 overflow-y-auto bg-slate-100 flex justify-center">
-              {/* Receipt Template Canvas Container */}
-              <div
-                id="printable-receipt-canvas"
-                className="bg-white p-6 rounded-lg w-[480px] border border-slate-300 shadow-sm text-slate-950 font-sans space-y-4"
-              >
-                {/* Brand Header */}
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <div className="flex items-center space-x-2">
-                    {queryResult.tenant.logoUrl ? (
-                      <img
-                        src={queryResult.tenant.circularLogoUrl || queryResult.tenant.logoUrl}
-                        alt="Logo"
-                        referrerPolicy="no-referrer"
-                        className="w-10 h-10 rounded-full bg-white object-cover border border-[#d95c0f]"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded-full bg-[#162e58] flex items-center justify-center text-orange-500">
-                        <GraduationCap className="w-5 h-5" />
-                      </div>
-                    )}
-                    <div>
-                      <h4 className="font-bold text-[13px] text-[#162e58] leading-tight uppercase">
-                        {queryResult.tenant.name}
-                      </h4>
-                      <p className="text-[9px] text-slate-500">Comité de Finanzas de Graduación</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[8px] uppercase font-bold text-slate-400 block">Número de Control</span>
-                    <span className="text-[11px] font-mono font-bold text-orange-600">
-                      REC-{queryResult.member.cedula?.replace(/[^0-9]/g, '') || '000'}-{selectedReceiptTargetId.replace('-', '')}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Status Watermark Header */}
-                <div className="bg-slate-50 border border-slate-200 rounded p-2.5 flex items-center justify-between text-xs">
-                  <div>
-                    <span className="text-[9px] text-slate-400 font-bold block uppercase">Integrante</span>
-                    <span className="font-bold text-slate-900">{queryResult.member.lastName}, {queryResult.member.firstName}</span>
-                    <span className="text-[10px] text-slate-500 block">C.I: {queryResult.member.cedula || 'N/A'}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[9px] text-slate-400 font-bold block uppercase">Estado Actual</span>
-                    {(() => {
-                      const mStatus = solvencySummary.monthsStatus[selectedReceiptTargetId];
-                      const qStatus = solvencySummary.quotasStatus[selectedReceiptTargetId];
-                      const status = mStatus || qStatus;
-                      
-                      if (status?.status === 'solvente') {
-                        return <span className="text-emerald-700 font-extrabold uppercase text-[11px]">✅ SOLVENTE</span>;
-                      } else if (status?.status === 'parcial') {
-                        return <span className="text-amber-700 font-extrabold uppercase text-[11px]">⚠️ PARCIAL</span>;
-                      } else {
-                        return <span className="text-red-600 font-extrabold uppercase text-[11px]">❌ PENDIENTE</span>;
-                      }
-                    })()}
-                  </div>
-                </div>
-
-                {/* Concept breakdown details */}
-                <div className="space-y-2">
-                  <span className="text-[9px] uppercase font-bold text-slate-400 block border-b border-slate-100 pb-1">
-                    Concepto Liquidado
-                  </span>
-                  
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="font-bold text-slate-800">
-                      {(() => {
-                        const m = queryResult.months.find(m => m.id === selectedReceiptTargetId);
-                        const q = queryResult.quotas.find(q => q.id === selectedReceiptTargetId);
-                        return m ? `Mensualidad de ${m.name} ${m.year}` : q ? `Cuota Especial: ${q.title}` : 'Concepto Especial';
-                      })()}
-                    </span>
-                    <span className="font-bold">
-                      {(() => {
-                        const m = queryResult.months.find(m => m.id === selectedReceiptTargetId);
-                        const q = queryResult.quotas.find(q => q.id === selectedReceiptTargetId);
-                        const fee = m ? m.feeUSD : q ? q.feeUSD : 0;
-                        return `$${fee}.00 USD`;
-                      })()}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Payments supporting this concept */}
-                <div className="space-y-1">
-                  <span className="text-[9px] uppercase font-bold text-slate-400 block border-b border-slate-100 pb-1">
-                    Transacciones del Alumno
-                  </span>
-                  
-                  <div className="space-y-1">
-                    {queryResult.payments
-                      .filter((p) => p.targetId === selectedReceiptTargetId)
-                      .map((p, idx) => (
-                        <div key={idx} className="flex justify-between items-center text-[11px] text-slate-700 bg-slate-50/50 p-1 rounded border border-slate-100">
-                          <div>
-                            <span className="font-bold font-mono text-slate-800">{p.reference}</span>
-                            <span className="text-[9px] text-slate-400 ml-1.5">{p.paymentDate} • {getMethodLabel(p.method)}</span>
-                          </div>
-                          <span className="font-bold">
-                            {p.currency === 'USD' ? `$${p.amountUSD.toFixed(2)}` : `${p.amountOriginal.toFixed(2)} Bs ($${p.amountUSD.toFixed(2)})`}
-                          </span>
-                        </div>
-                      ))}
-
-                    {queryResult.payments.filter((p) => p.targetId === selectedReceiptTargetId).length === 0 && (
-                      <p className="text-[10px] text-slate-400 text-center italic py-2">
-                        No hay pagos directos registrados para este concepto. Consultar con el Comité.
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Footer totals */}
-                <div className="border-t border-slate-200 pt-3 flex items-center justify-between text-xs">
-                  <div>
-                    <span className="text-[9px] text-slate-400 font-bold block uppercase">Total Abonado al Concepto</span>
-                    <span className="font-extrabold text-emerald-800 text-sm">
-                      ${((solvencySummary.monthsStatus[selectedReceiptTargetId] || solvencySummary.quotasStatus[selectedReceiptTargetId])?.paidUSD || 0).toFixed(2)} USD
-                    </span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[9px] text-slate-400 font-bold block uppercase">Deuda Restante</span>
-                    <span className={`font-extrabold text-sm ${((solvencySummary.monthsStatus[selectedReceiptTargetId] || solvencySummary.quotasStatus[selectedReceiptTargetId])?.owedUSD || 0) > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
-                      ${((solvencySummary.monthsStatus[selectedReceiptTargetId] || solvencySummary.quotasStatus[selectedReceiptTargetId])?.owedUSD || 0).toFixed(2)} USD
-                    </span>
-                  </div>
-                </div>
-
-                {/* Digital Stamp Sign */}
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                  <div className="text-[8px] text-slate-400 leading-normal max-w-[280px]">
-                    Este recibo es un comprobante digital generado automáticamente por la aplicación de control financiero de promoción. Tiene validez oficial del Comité de Finanzas.
-                  </div>
-                  <div className="border border-slate-300 rounded p-1.5 text-center bg-slate-50">
-                    <span className="text-[8px] font-bold text-[#162e58] uppercase block">Sello Digital</span>
-                    <span className="text-[9px] font-mono font-extrabold text-orange-600">VERIFICADO</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Modal Actions */}
-            <div className="bg-slate-50 px-4 py-3 flex gap-2 border-t border-slate-200">
-              <button
-                disabled={isGeneratingPDF}
-                onClick={() => handleDownloadReceiptPDF(`RECIBO-${queryResult.member.cedula || '000'}-${selectedReceiptTargetId}`)}
-                className="flex-1 bg-indigo-900 hover:bg-indigo-950 text-white font-bold text-xs py-2 rounded-lg flex items-center justify-center space-x-1.5 shadow-sm transition-all disabled:opacity-50 cursor-pointer"
-              >
-                {isGeneratingPDF ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Download className="w-4 h-4" />
-                )}
-                <span>Descargar PDF</span>
-              </button>
-              
-              <button
-                onClick={() => {
-                  const printContents = document.getElementById('printable-receipt-canvas')?.innerHTML;
-                  if (printContents) {
-                    const printWindow = window.open('', '', 'height=600,width=800');
-                    if (printWindow) {
-                      printWindow.document.write(`
-                        <html>
-                          <head>
-                            <title>Comprobante de Pago</title>
-                            <style>
-                              body { font-family: sans-serif; background: #fff; color: #000; padding: 20px; display: flex; justify-content: center; }
-                              #printable-receipt-canvas { max-width: 480px; width: 100%; border: 1px solid #ccc; padding: 20px; box-sizing: border-box; }
-                              .flex { display: flex; }
-                              .justify-between { justify-content: space-between; }
-                              .items-center { align-items: center; }
-                              .pb-3 { padding-bottom: 12px; }
-                              .border-b { border-bottom: 1px solid #eee; }
-                              .border-t { border-top: 1px solid #eee; }
-                              .bg-slate-50 { background-color: #f8fafc; }
-                              .border-slate-200 { border-color: #e2e8f0; }
-                              .p-2.5 { padding: 10px; }
-                              .p-3 { padding: 12px; }
-                              .text-xs { font-size: 12px; }
-                              .text-sm { font-size: 14px; }
-                              .font-bold { font-weight: bold; }
-                              .font-extrabold { font-weight: 800; }
-                              .font-black { font-weight: 900; }
-                              .uppercase { text-transform: uppercase; }
-                              .text-orange-600 { color: #ea580c; }
-                              .text-[#162e58] { color: #162e58; }
-                              .text-emerald-700 { color: #047857; }
-                              .text-emerald-800 { color: #065f46; }
-                              .text-red-600 { color: #dc2626; }
-                              .space-y-4 > * + * { margin-top: 16px; }
-                              .space-y-2 > * + * { margin-top: 8px; }
-                              .space-y-1 > * + * { margin-top: 4px; }
-                            </style>
-                          </head>
-                          <body onload="window.print();window.close()">
-                            <div id="printable-receipt-canvas">${printContents}</div>
-                          </body>
-                        </html>
-                      `);
-                      printWindow.document.close();
-                    }
-                  }
-                }}
-                className="bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs py-2 px-3 rounded-lg border border-slate-300 shadow-2xs transition-colors flex items-center gap-1 cursor-pointer"
-              >
-                <Printer className="w-4 h-4 text-slate-500" />
-                <span>Imprimir</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      
 
       {/* Footer */}
       <footer className="bg-slate-100 border-t border-slate-200 py-4 text-center text-xs text-slate-500">
         © 2026 {queryResult?.tenant.name || 'SaaS'} • Desarrollado por el Comité de Finanzas. Todos los derechos reservados.
       </footer>
+      {isInvoiceModalOpen && queryResult && solvencySummary && (
+        <InvoiceModal
+          isOpen={isInvoiceModalOpen}
+          onClose={() => setIsInvoiceModalOpen(false)}
+          member={queryResult.member}
+          solvencySummary={solvencySummary}
+          months={queryResult.months}
+          quotas={queryResult.quotas}
+          payments={queryResult.payments}
+          initialTargetId={selectedReceiptTargetId || undefined}
+        />
+      )}
     </div>
   );
 };

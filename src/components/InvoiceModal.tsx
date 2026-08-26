@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+  import React, { useState } from 'react';
 import { X, Printer, Mail, CheckCircle2, AlertTriangle, GraduationCap, FileText, Calendar, Download, Send } from 'lucide-react';
 import html2canvas from 'html2canvas-pro';
 import { jsPDF } from 'jspdf';
@@ -25,7 +25,9 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   quotas,
   payments,
 }) => {
-  const [selectedTargetId, setSelectedTargetId] = useState<string>(months[5]?.id || months[0]?.id || '2026-06');
+  const rawMemberPaymentsInit = payments.filter(p => p.memberId === member?.id);
+  const latestTx = rawMemberPaymentsInit.length > 0 ? rawMemberPaymentsInit[rawMemberPaymentsInit.length - 1] : null;
+  const [selectedTargetId, setSelectedTargetId] = useState<string>(initialTargetId || (latestTx ? 'tx-' + latestTx.id : (months[5]?.id || months[0]?.id || '2026-06')));
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [emailStatus, setEmailStatus] = useState<string | null>(null);
@@ -83,7 +85,8 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   const selectedTx = isTransactionMode ? memberPayments.find(p => p.id === selectedTargetId.replace('tx-', '')) : null;
 
   if (isTransactionMode && selectedTx) {
-    targetTitle = selectedTx.targetLabel || 'Pago Multi-concepto';
+    targetTitle = selectedTx.targetLabel || 'Pago de Transacción';
+    requiredFee = selectedTx.amountUSD;
   } else if (selectedMonth) {
     feeDirect = selectedMonth.feeUSD_direct || selectedMonth.feeUSD || 12;
     feeBcv = selectedMonth.feeUSD_bcv || selectedMonth.feeUSD_direct || 12;
@@ -405,7 +408,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                   {sessionStorage.getItem('tenantName') || "PROMOCIÓN 106"}
                 </h2>
                 <p className="text-xs font-bold text-slate-500 tracking-widest uppercase">
-                  MÉDICOS CIRUJANOS
+                  SISTEMA DE GESTIÓN
                 </p>
               </div>
             </div>

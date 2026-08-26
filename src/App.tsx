@@ -328,6 +328,42 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
             
 
             const exps = Array.isArray(json.data.expenses) ? json.data.expenses : [];
+            
+            // Check for Auto Backup
+            const autoBackupEnabled = localStorage.getItem('autoBackupDrive') === 'true';
+            const todayStr = new Date().toISOString().split('T')[0];
+            const lastBackupStr = localStorage.getItem('lastAutoBackupDate');
+            const driveToken = localStorage.getItem('driveToken');
+            
+            if (autoBackupEnabled && driveToken && lastBackupStr !== todayStr) {
+               console.log("Triggering auto backup to Google Drive...");
+               fetch('/api/backup/drive', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${driveToken}`,
+                    ...getTenantHeaders()
+                  },
+                  body: JSON.stringify({ 
+                    fileName: `control_pagos_respaldo_${todayStr}.json`, 
+                    fileContent: JSON.stringify({
+                      members: mems,
+                      months: Array.isArray(json.data.months) && json.data.months.length > 0 ? json.data.months : [],
+                      quotas: qts,
+                      payments: pays,
+                      dollarPurchases: dps,
+                      expenses: exps,
+                      exportedAt: new Date().toISOString(),
+                      version: '2.0'
+                    }, null, 2) 
+                  })
+               }).then(r => r.json()).then(res => {
+                  if (res.success || res.id) {
+                     console.log("Auto backup successful.");
+                     localStorage.setItem('lastAutoBackupDate', todayStr);
+                  }
+               }).catch(e => console.error("Auto backup failed:", e));
+            }
             setExpenses(exps);
             
 

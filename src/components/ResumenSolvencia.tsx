@@ -180,7 +180,7 @@ export const ResumenSolvencia: React.FC<ResumenSolvenciaProps> = ({
         const hasPartialQuota = visibleQuotas.some((q) => s.quotasStatus[q.id]?.status === 'parcial');
         return hasPartialMonth || hasPartialQuota;
       }
-
+      if (statusFilter === 'fined') return (s.lateFeesSummary?.owedLateFeesUSD || 0) > 0.01;
       return true;
     });
   }, [memberSummariesWithVisibleDebt, searchQuery, statusFilter, visibleMonths, visibleQuotas]);
