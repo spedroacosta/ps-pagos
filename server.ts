@@ -3489,22 +3489,56 @@ async function startServer() {
   app.post('/api/backup/drive', express.json({ limit: '50mb' }), async (req, res) => {
     try {
       const { fileName, fileContent } = req.body;
+      const tenantId = (req.headers['x-tenant-id'] as string) || req.body.tenantId || 'original';
       
       if (!fileName || !fileContent) {
         return res.status(400).json({ error: 'Falta fileName o fileContent' });
       }
 
-      // Check for headers that the proxy might inject if user authenticated via set_up_oauth
-      const accessToken = req.headers['x-goog-oauth2-access-token'] || 
-                          (req.headers.authorization ? req.headers.authorization.split('Bearer ')[1] : null);
+      const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "753906353358-ld8k47do0qkqfsnmidk4t50ojrbaihre.apps.googleusercontent.com";
+      const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 
-      if (!accessToken) {
-         return res.status(401).json({ error: 'No autorizado. Requiere sesión iniciada para respaldar en Google Drive.' });
+      let oauth2Client: any = null;
+
+      // Check for saved tenant Google Drive credentials on server first
+      const config = await loadTenantConfig(tenantId);
+      const gd = config.googleDrive;
+
+      if (gd && (gd.refreshToken || gd.accessToken)) {
+        oauth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
+        oauth2Client.setCredentials({
+          refresh_token: gd.refreshToken,
+          access_token: gd.accessToken
+        });
+
+        if (gd.refreshToken) {
+          try {
+            const refreshed = await oauth2Client.getAccessToken();
+            if (refreshed && refreshed.token) {
+              gd.accessToken = refreshed.token;
+              config.googleDrive = gd;
+              await saveTenantConfig(tenantId, config);
+            }
+          } catch (rErr: any) {
+            console.warn('[Drive Manual Backup API] Token refresh note:', rErr.message);
+          }
+        }
+      } else {
+        // Fallback to header authorization if sent
+        const rawToken = req.headers['x-goog-oauth2-access-token'] || 
+                         (req.headers.authorization ? req.headers.authorization.split('Bearer ')[1] : null);
+        const accessToken = Array.isArray(rawToken) ? rawToken[0] : rawToken;
+
+        if (accessToken && typeof accessToken === 'string' && accessToken.trim() !== '' && accessToken !== 'null' && accessToken !== 'undefined') {
+          oauth2Client = new google.auth.OAuth2();
+          oauth2Client.setCredentials({ access_token: accessToken });
+        }
       }
 
-      const oauth2Client = new google.auth.OAuth2();
-      oauth2Client.setCredentials({ access_token: accessToken as string });
-      
+      if (!oauth2Client) {
+         return res.status(401).json({ error: 'No autorizado. Se requiere vincular la cuenta de Google Drive de esta promoción primero.' });
+      }
+
       const drive = google.drive({ version: 'v3', auth: oauth2Client });
       
       const fileMetadata = {
@@ -3522,11 +3556,17 @@ async function startServer() {
         media: media,
         fields: 'id',
       });
+
+      if (file.data.id && gd) {
+        gd.lastAutoBackupDate = new Date().toISOString().split('T')[0];
+        config.googleDrive = gd;
+        await saveTenantConfig(tenantId, config);
+      }
       
       res.json({ success: true, fileId: file.data.id });
     } catch (error: any) {
       console.error('Error uploading to Google Drive:', error);
-      res.status(500).json({ error: 'Error al subir el respaldo a Google Drive', details: error.message });
+      res.status(500).json({ error: 'Error al subir el respaldo a Google Drive: ' + (error.message || 'Error desconocido'), details: error.message });
     }
   });
 
