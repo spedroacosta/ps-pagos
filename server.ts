@@ -104,6 +104,14 @@ export interface TenantConfig {
   smtp: SmtpConfig;
   telegram: TelegramConfig;
   telegramLogs: { timestamp: string; message: string; success: boolean }[];
+  googleDrive?: {
+    accessToken?: string;
+    refreshToken?: string;
+    autoBackupEnabled?: boolean;
+    lastAutoBackupDate?: string;
+    userEmail?: string;
+    updatedAt?: string;
+  };
   lateFee?: { 
     feeUSD_direct: number; 
     feeUSD_bcv: number; 
@@ -2770,6 +2778,244 @@ function saveBackupConfig(config: any) {
   }
 }
 
+// Tenant Daily Google Drive Backup Routine (Server-side with Refresh Tokens)
+async function runTenantDailyDriveBackups(): Promise<void> {
+  const todayStr = new Date().toISOString().split('T')[0];
+  console.log(`[Drive Auto-Backup Engine] Running automated daily Drive backup check for date: ${todayStr}...`);
+
+  let tenantsMap: Record<string, any> = {};
+  if (fs.existsSync(TENANTS_FILE)) {
+    try {
+      tenantsMap = JSON.parse(fs.readFileSync(TENANTS_FILE, 'utf-8'));
+    } catch (e) {}
+  }
+  if (Object.keys(tenantsMap).length === 0) {
+    tenantsMap['original'] = { id: 'original', name: 'Promoción Principal' };
+  }
+
+  const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "753906353358-ld8k47do0qkqfsnmidk4t50ojrbaihre.apps.googleusercontent.com";
+  const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
+
+  for (const tenantId of Object.keys(tenantsMap)) {
+    try {
+      const config = await loadTenantConfig(tenantId);
+      const gd = config.googleDrive;
+
+      if (!gd || gd.autoBackupEnabled === false) {
+        continue;
+      }
+
+      if (gd.lastAutoBackupDate === todayStr) {
+        continue;
+      }
+
+      if (!gd.refreshToken && !gd.accessToken) {
+        continue;
+      }
+
+      console.log(`[Drive Auto-Backup Engine] Backing up tenant ${tenantId} to Google Drive...`);
+
+      const oauth2Client = new google.auth.OAuth2(
+        GOOGLE_CLIENT_ID,
+        GOOGLE_CLIENT_SECRET
+      );
+
+      oauth2Client.setCredentials({
+        refresh_token: gd.refreshToken,
+        access_token: gd.accessToken
+      });
+
+      // Try refreshing access token if refresh_token is present
+      if (gd.refreshToken) {
+        try {
+          const refreshed = await oauth2Client.getAccessToken();
+          if (refreshed && refreshed.token) {
+            gd.accessToken = refreshed.token;
+          }
+        } catch (rErr: any) {
+          console.warn(`[Drive Auto-Backup Engine] Token refresh note for ${tenantId}:`, rErr.message);
+        }
+      }
+
+      const drive = google.drive({ version: 'v3', auth: oauth2Client });
+      const tenantData = await loadServerData(tenantId);
+      const fileName = `control_pagos_respaldo_${tenantId}_${todayStr}.json`;
+
+      const fileMetadata = {
+        name: fileName,
+        mimeType: 'application/json',
+      };
+      const media = {
+        mimeType: 'application/json',
+        body: JSON.stringify(tenantData, null, 2)
+      };
+
+      const file = await drive.files.create({
+        requestBody: fileMetadata,
+        media: media,
+        fields: 'id',
+      });
+
+      if (file.data.id) {
+        console.log(`[Drive Auto-Backup Engine] Daily backup uploaded for tenant ${tenantId} -> File ID: ${file.data.id}`);
+        gd.lastAutoBackupDate = todayStr;
+        config.googleDrive = gd;
+        await saveTenantConfig(tenantId, config);
+      }
+    } catch (err: any) {
+      console.error(`[Drive Auto-Backup Engine] Error for tenant ${tenantId}:`, err.message);
+    }
+  }
+}
+
+// Master Daily Backup Function for SuperAdmin
+async function generateMasterDailySnapshot(): Promise<{ success: boolean; filePath?: string; error?: string }> {
+  try {
+    const backupDir = path.join(process.cwd(), 'server_backups');
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
+
+    const todayDate = new Date().toISOString().split('T')[0];
+    const fileName = `master_snapshot_${todayDate}.json`;
+    const filePath = path.join(backupDir, fileName);
+
+    let tenantsMap: Record<string, any> = {};
+    if (fs.existsSync(TENANTS_FILE)) {
+      try {
+        tenantsMap = JSON.parse(fs.readFileSync(TENANTS_FILE, 'utf-8'));
+      } catch (e) {}
+    }
+
+    if (Object.keys(tenantsMap).length === 0) {
+      tenantsMap['original'] = { id: 'original', name: 'Promoción Principal', createdAt: new Date().toISOString(), licenseKey: 'TRIAL', expiresAt: '2099-12-31' };
+    }
+
+    const masterSnapshot: any = {
+      snapshotDate: todayDate,
+      createdAt: new Date().toISOString(),
+      backupType: 'MASTER_FULL_SYSTEM',
+      totalTenants: Object.keys(tenantsMap).length,
+      tenants: tenantsMap,
+      tenantsData: {}
+    };
+
+    for (const tenantId of Object.keys(tenantsMap)) {
+      try {
+        const tenantData = await loadServerData(tenantId);
+        masterSnapshot.tenantsData[tenantId] = tenantData;
+      } catch (err) {
+        console.error(`Error adding tenant ${tenantId} to master snapshot:`, err);
+      }
+    }
+
+    fs.writeFileSync(filePath, JSON.stringify(masterSnapshot, null, 2), 'utf-8');
+    console.log(`[Master Backup] Automated daily snapshot created successfully: ${fileName}`);
+
+    // Prune old snapshots (keep last 30)
+    try {
+      const files = fs.readdirSync(backupDir);
+      const snapshots = files.filter(f => f.startsWith('master_snapshot_')).sort();
+      if (snapshots.length > 30) {
+        while (snapshots.length > 30) {
+          const oldest = snapshots.shift();
+          if (oldest) {
+            fs.unlinkSync(path.join(backupDir, oldest));
+          }
+        }
+      }
+    } catch (e) {}
+
+    return { success: true, filePath };
+  } catch (err: any) {
+    console.error('[Master Backup] Error creating snapshot:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+// GET /api/superadmin/master-backup - Download live master backup of all tenants
+app.get('/api/superadmin/master-backup', async (req, res) => {
+  const token = req.query.token || req.headers['x-superadmin-token'];
+  const masterPassword = process.env.SUPER_ADMIN_PASSWORD || 'admin123';
+  if (!token || token !== masterPassword) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+
+  try {
+    let tenantsMap: Record<string, any> = {};
+    if (fs.existsSync(TENANTS_FILE)) {
+      try {
+        tenantsMap = JSON.parse(fs.readFileSync(TENANTS_FILE, 'utf-8'));
+      } catch (e) {}
+    }
+
+    if (Object.keys(tenantsMap).length === 0) {
+      tenantsMap['original'] = { id: 'original', name: 'Promoción Principal', createdAt: new Date().toISOString(), licenseKey: 'TRIAL', expiresAt: '2099-12-31' };
+    }
+
+    const masterData: any = {
+      exportDate: new Date().toISOString(),
+      backupType: 'MASTER_FULL_SYSTEM',
+      totalTenants: Object.keys(tenantsMap).length,
+      tenants: tenantsMap,
+      tenantsData: {}
+    };
+
+    for (const tenantId of Object.keys(tenantsMap)) {
+      masterData.tenantsData[tenantId] = await loadServerData(tenantId);
+    }
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="master_backup_FULL_${new Date().toISOString().split('T')[0]}.json"`);
+    res.send(JSON.stringify(masterData, null, 2));
+  } catch (error: any) {
+    console.error('Error generating master backup:', error);
+    res.status(500).json({ error: 'Error al generar respaldo general', details: error.message });
+  }
+});
+
+// GET /api/superadmin/master-snapshots - List saved daily server snapshots
+app.get('/api/superadmin/master-snapshots', superAdminAuthMiddleware, (req, res) => {
+  try {
+    const backupDir = path.join(process.cwd(), 'server_backups');
+    if (!fs.existsSync(backupDir)) {
+      return res.json({ success: true, snapshots: [] });
+    }
+    const files = fs.readdirSync(backupDir).filter(f => f.startsWith('master_snapshot_')).sort().reverse();
+    const snapshots = files.map(filename => {
+      const stats = fs.statSync(path.join(backupDir, filename));
+      return {
+        filename,
+        sizeBytes: stats.size,
+        date: filename.replace('master_snapshot_', '').replace('.json', ''),
+        createdAt: stats.mtime.toISOString()
+      };
+    });
+    res.json({ success: true, snapshots });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/superadmin/master-snapshots/download/:filename
+app.get('/api/superadmin/master-snapshots/download/:filename', async (req, res) => {
+  const token = req.query.token || req.headers['x-superadmin-token'];
+  const masterPassword = process.env.SUPER_ADMIN_PASSWORD || 'admin123';
+  if (!token || token !== masterPassword) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+
+  const { filename } = req.params;
+  const filePath = path.join(process.cwd(), 'server_backups', path.basename(filename));
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Snapshot no encontrado' });
+  }
+
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(fs.readFileSync(filePath, 'utf-8'));
+});
+
 // GET /api/superadmin/backup-config
 app.get('/api/superadmin/backup-config', superAdminAuthMiddleware, (req, res) => {
   const config = loadBackupConfig();
@@ -3284,6 +3530,82 @@ async function startServer() {
     }
   });
 
+  // TENANT GOOGLE DRIVE REFRESH TOKEN AUTH ENDPOINTS
+  app.post('/api/tenant/google-drive-auth', express.json(), async (req, res) => {
+    try {
+      const tenantId = (req.headers['x-tenant-id'] as string) || req.body.tenantId || 'original';
+      const { code, accessToken, refreshToken, autoBackupEnabled, userEmail } = req.body;
+
+      let finalAccessToken = accessToken || '';
+      let finalRefreshToken = refreshToken || '';
+
+      const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "753906353358-ld8k47do0qkqfsnmidk4t50ojrbaihre.apps.googleusercontent.com";
+      const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
+
+      if (code) {
+        try {
+          const oauth2Client = new google.auth.OAuth2(
+            GOOGLE_CLIENT_ID,
+            GOOGLE_CLIENT_SECRET,
+            'postmessage'
+          );
+          const { tokens } = await oauth2Client.getToken(code);
+          if (tokens.access_token) finalAccessToken = tokens.access_token;
+          if (tokens.refresh_token) finalRefreshToken = tokens.refresh_token;
+        } catch (codeErr: any) {
+          console.warn('[Google Drive Auth] Code exchange note:', codeErr.message);
+        }
+      }
+
+      const config = await loadTenantConfig(tenantId);
+      config.googleDrive = {
+        accessToken: finalAccessToken || config.googleDrive?.accessToken || '',
+        refreshToken: finalRefreshToken || config.googleDrive?.refreshToken || '',
+        autoBackupEnabled: autoBackupEnabled !== false,
+        lastAutoBackupDate: config.googleDrive?.lastAutoBackupDate || '',
+        userEmail: userEmail || config.googleDrive?.userEmail || '',
+        updatedAt: new Date().toISOString()
+      };
+
+      await saveTenantConfig(tenantId, config);
+      res.json({ success: true, googleDrive: config.googleDrive });
+    } catch (err: any) {
+      console.error('Error saving Google Drive Auth for tenant:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/tenant/google-drive-status', async (req, res) => {
+    try {
+      const tenantId = (req.headers['x-tenant-id'] as string) || 'original';
+      const config = await loadTenantConfig(tenantId);
+      const gd = config.googleDrive;
+      res.json({
+        success: true,
+        isConnected: !!(gd && (gd.refreshToken || gd.accessToken)),
+        hasRefreshToken: !!(gd && gd.refreshToken),
+        autoBackupEnabled: gd ? (gd.autoBackupEnabled !== false) : false,
+        lastAutoBackupDate: gd?.lastAutoBackupDate || null,
+        userEmail: gd?.userEmail || null,
+        updatedAt: gd?.updatedAt || null
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/tenant/google-drive-disconnect', async (req, res) => {
+    try {
+      const tenantId = (req.headers['x-tenant-id'] as string) || 'original';
+      const config = await loadTenantConfig(tenantId);
+      config.googleDrive = { autoBackupEnabled: false, lastAutoBackupDate: '', refreshToken: '', accessToken: '' };
+      await saveTenantConfig(tenantId, config);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -3309,6 +3631,21 @@ async function startServer() {
     initAllActiveTelegramBots().catch((tgErr) => {
       console.error('Failed to initialize multi-tenant Telegram Bots:', tgErr);
     });
+
+    // Run Master Daily Backup Routine for SuperAdmin
+    generateMasterDailySnapshot().catch((bErr) => {
+      console.error('Master daily backup error:', bErr);
+    });
+    // Run Automated Tenant Google Drive Backups
+    runTenantDailyDriveBackups().catch((dErr) => {
+      console.error('Tenant Drive daily backup error:', dErr);
+    });
+
+    // Interval check every 12 hours
+    setInterval(() => {
+      generateMasterDailySnapshot().catch(err => console.error('Interval master backup error:', err));
+      runTenantDailyDriveBackups().catch(err => console.error('Interval tenant drive backup error:', err));
+    }, 12 * 3600 * 1000);
   });
 }
 

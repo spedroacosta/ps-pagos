@@ -1,5 +1,5 @@
 declare const google: any;
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Settings,
   Calendar,
@@ -323,6 +323,27 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
     const key = 'autoDriveBackupEnabled_' + (tenantId || 'original');
     return localStorage.getItem(key) === 'true';
   });
+  const [serverDriveStatus, setServerDriveStatus] = useState<{ isConnected: boolean; autoBackupEnabled: boolean; lastAutoBackupDate: string | null } | null>(null);
+
+  const fetchDriveStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/tenant/google-drive-status', {
+        headers: { ...getTenantHeaders() }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setServerDriveStatus({
+          isConnected: data.isConnected,
+          autoBackupEnabled: data.autoBackupEnabled,
+          lastAutoBackupDate: data.lastAutoBackupDate
+        });
+      }
+    } catch (e) {}
+  }, [tenantId]);
+
+  useEffect(() => {
+    fetchDriveStatus();
+  }, [fetchDriveStatus]);
 
   const handleDriveBackup = async () => {
     try {
@@ -2222,32 +2243,109 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
                   className="bg-[#162e58] hover:bg-[#0a1e3f] text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-xs transition-all cursor-pointer w-full"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span>Descargar Copia de Seguridad (.json)</span>
+                  <span>Descargar Copia de Seguridad Local (.json)</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
-                      alert('El script de Google no se ha cargado. Por favor, recarga la página. Si estás en la vista previa, intenta abrir la app en una nueva pestaña.');
-                      return;
-                    }
-                    const client = google.accounts.oauth2.initTokenClient({
-                      client_id: "753906353358-ld8k47do0qkqfsnmidk4t50ojrbaihre.apps.googleusercontent.com",
-                      scope: 'https://www.googleapis.com/auth/drive.file',
-                      callback: (tokenResponse) => {
-                        if (tokenResponse && tokenResponse.access_token) {
-                          localStorage.setItem('driveToken', tokenResponse.access_token);
-                          alert('¡Conectado exitosamente con Google! Ahora puedes hacer respaldos automáticos en Drive.');
-                        }
-                      },
-                    });
-                    client.requestAccessToken();
-                  }}
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-xs transition-all cursor-pointer w-full"
-                >
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12.01 1.493l-4.47 7.732h8.941l4.47-7.732h-8.94m-5.462 1.706L2.073 10.93l4.472 7.73 4.47-7.73-4.467-7.73zM18.442 12.637l-4.47 7.732H5.03l4.47-7.732h8.942z"/></svg>
-                  <span>Iniciar Sesión con Google</span>
-                </button>
+
+                {/* Google Drive Refresh Token Connection Banner */}
+                {serverDriveStatus?.isConnected ? (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 text-xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-emerald-900 flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        Servidor Conectado a Google Drive
+                      </span>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (confirm('¿Deseas desvincular la cuenta de Google Drive de esta promoción?')) {
+                            await fetch('/api/tenant/google-drive-disconnect', {
+                              method: 'POST',
+                              headers: { ...getTenantHeaders() }
+                            });
+                            localStorage.removeItem('driveToken');
+                            fetchDriveStatus();
+                            alert('Cuenta de Google Drive desvinculada del servidor.');
+                          }
+                        }}
+                        className="text-[11px] font-bold text-red-600 hover:underline cursor-pointer"
+                      >
+                        Desconectar
+                      </button>
+                    </div>
+                    <p className="text-emerald-800 text-[11px] leading-relaxed">
+                      ✅ <strong>Respaldo Automático 100% Desatendido Activo</strong>: El servidor enviará de forma automática una copia de seguridad diaria a tu Google Drive a las 3:00 AM, sin necesidad de que inicies sesión ni tengas el navegador abierto.
+                    </p>
+                    {serverDriveStatus.lastAutoBackupDate && (
+                      <p className="text-[10px] text-emerald-700 font-semibold">
+                        Último respaldo ejecutado por el servidor: {serverDriveStatus.lastAutoBackupDate}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+                        alert('El script de Google no se ha cargado. Por favor, recarga la página. Si estás en la vista previa, intenta abrir la app en una nueva pestaña.');
+                        return;
+                      }
+
+                      // Try Code Client flow for offline refresh_token
+                      try {
+                        const codeClient = google.accounts.oauth2.initCodeClient({
+                          client_id: "753906353358-ld8k47do0qkqfsnmidk4t50ojrbaihre.apps.googleusercontent.com",
+                          scope: 'https://www.googleapis.com/auth/drive.file',
+                          ux_mode: 'popup',
+                          callback: async (response: any) => {
+                            if (response.code) {
+                              try {
+                                const res = await fetch('/api/tenant/google-drive-auth', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json', ...getTenantHeaders() },
+                                  body: JSON.stringify({ code: response.code, autoBackupEnabled: true })
+                                });
+                                const data = await res.json();
+                                if (data.success) {
+                                  alert('🎉 ¡Vinculación Permanente de Google Drive Exitosa!\n\nTu perfil ha quedado registrado en el servidor con Refresh Token. Las copias de seguridad de esta promoción se subirán de forma 100% automática a tu Google Drive todos los días a las 3:00 AM, sin que nadie tenga que iniciar sesión.');
+                                  fetchDriveStatus();
+                                } else {
+                                  alert('Error al guardar credenciales en servidor: ' + (data.error || 'Desconocido'));
+                                }
+                              } catch (err: any) {
+                                alert('Error de conexión con servidor: ' + err.message);
+                              }
+                            }
+                          }
+                        });
+                        codeClient.requestCode();
+                      } catch (codeErr) {
+                        // Fallback to token client
+                        const tokenClient = google.accounts.oauth2.initTokenClient({
+                          client_id: "753906353358-ld8k47do0qkqfsnmidk4t50ojrbaihre.apps.googleusercontent.com",
+                          scope: 'https://www.googleapis.com/auth/drive.file',
+                          callback: async (tokenResponse: any) => {
+                            if (tokenResponse && tokenResponse.access_token) {
+                              localStorage.setItem('driveToken', tokenResponse.access_token);
+                              await fetch('/api/tenant/google-drive-auth', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', ...getTenantHeaders() },
+                                body: JSON.stringify({ accessToken: tokenResponse.access_token, autoBackupEnabled: true })
+                              });
+                              fetchDriveStatus();
+                              alert('¡Conectado exitosamente con Google Drive!');
+                            }
+                          },
+                        });
+                        tokenClient.requestAccessToken();
+                      }
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-xs transition-all cursor-pointer w-full"
+                  >
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12.01 1.493l-4.47 7.732h8.941l4.47-7.732h-8.94m-5.462 1.706L2.073 10.93l4.472 7.73 4.47-7.73-4.467-7.73zM18.442 12.637l-4.47 7.732H5.03l4.47-7.732h8.942z"/></svg>
+                    <span>Vincular Google Drive Permanente (Refresh Token)</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={handleDriveBackup}
@@ -2255,32 +2353,8 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
                   className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-xs transition-all cursor-pointer w-full disabled:opacity-50"
                 >
                   <Upload className="w-3.5 h-3.5" />
-                  <span>{isDriveBackingUp ? 'Subiendo...' : 'Respaldar Manualmente en Google Drive'}</span>
+                  <span>{isDriveBackingUp ? 'Subiendo...' : 'Respaldar Ahora Manualmente en Google Drive'}</span>
                 </button>
-
-                {/* Daily Auto-Backup Toggle */}
-                <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
-                  <label className="flex items-center justify-between p-2.5 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
-                    <div className="pr-2">
-                      <span className="text-xs font-bold text-slate-800 block">Respaldos Automáticos Diarios</span>
-                      <span className="text-[10px] text-slate-500 block">Ejecuta una copia silenciosa en Google Drive al iniciar sesión cada día</span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={autoDriveBackupEnabled}
-                      onChange={(e) => {
-                        const val = e.target.checked;
-                        setAutoDriveBackupEnabled(val);
-                        const key = 'autoDriveBackupEnabled_' + (tenantId || 'original');
-                        localStorage.setItem(key, val ? 'true' : 'false');
-                        if (val && !localStorage.getItem('driveToken')) {
-                          alert('💡 Recuerda: Para que los respaldos automáticos se suban exitosamente a tu cuenta de Google Drive, debes haber iniciado sesión previamente usando el botón "Iniciar Sesión con Google".');
-                        }
-                      }}
-                      className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer"
-                    />
-                  </label>
-                </div>
               </div>
             </div>
 

@@ -782,6 +782,28 @@ export const SuperAdminPanel: React.FC<SuperAdminPanelProps> = ({ token, onLogou
 
             {/* Automated Backups Configuration */}
             <div className="border-t border-slate-100 pt-6">
+              <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white rounded-2xl p-5 mb-6 shadow-md">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <span className="inline-block px-2.5 py-0.5 bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 rounded-full text-[10px] font-bold uppercase tracking-wider mb-2">
+                      Arquitectura de Doble Respaldo Diaria Activa
+                    </span>
+                    <h3 className="text-lg font-black tracking-tight">Respaldo Master General del Sistema</h3>
+                    <p className="text-xs text-indigo-200 mt-1 max-w-xl leading-relaxed">
+                      Genera una copia de seguridad consolidada de **todas las promociones**, integrantes, movimientos, licencias y configuraciones del servidor en un solo archivo JSON.
+                    </p>
+                  </div>
+                  <a
+                    href={`/api/superadmin/master-backup?token=${encodeURIComponent(token)}`}
+                    download
+                    className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs px-5 py-3 rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer transition-all transform hover:scale-[1.02] active:scale-[0.98] shrink-0"
+                  >
+                    <Download className="w-4 h-4 text-slate-950" />
+                    <span>Descargar Respaldo Master (Todas las Promos)</span>
+                  </a>
+                </div>
+              </div>
+
               <h2 className="text-base font-black text-slate-800 mb-1 flex items-center gap-2">
                 <RefreshCw className="w-5 h-5 text-indigo-600" />
                 Configuración de Respaldos Automáticos
