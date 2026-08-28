@@ -362,29 +362,65 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
       const dateStr = new Date().toISOString().split('T')[0];
       const fileName = `control_pagos_respaldo_${dateStr}.json`;
 
-      const driveToken = localStorage.getItem('driveToken');
-      const response = await fetch('/api/backup/drive', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': driveToken ? `Bearer ${driveToken}` : '',
-          ...getTenantHeaders()
-        },
-        body: JSON.stringify({ fileName, fileContent: dataStr })
-      });
+      const uploadWithToken = async (token: string | null) => {
+        return await fetch('/api/backup/drive', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': token ? `Bearer ${token}` : '',
+            ...getTenantHeaders()
+          },
+          body: JSON.stringify({ fileName, fileContent: dataStr })
+        });
+      };
+
+      let driveToken = localStorage.getItem('driveToken');
+      let response = await uploadWithToken(driveToken);
+
+      if (!response.ok && response.status === 401) {
+        // Token missing or expired -> Prompt Google OAuth popup seamlessly
+        if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
+          await new Promise<void>((resolve) => {
+            const tokenClient = google.accounts.oauth2.initTokenClient({
+              client_id: "753906353358-ld8k47do0qkqfsnmidk4t50ojrbaihre.apps.googleusercontent.com",
+              scope: 'https://www.googleapis.com/auth/drive.file',
+              callback: async (tokenResponse: any) => {
+                if (tokenResponse && tokenResponse.access_token) {
+                  driveToken = tokenResponse.access_token;
+                  localStorage.setItem('driveToken', tokenResponse.access_token);
+                  
+                  // Save to tenant on server
+                  await fetch('/api/tenant/google-drive-auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', ...getTenantHeaders() },
+                    body: JSON.stringify({ accessToken: tokenResponse.access_token, autoBackupEnabled: true })
+                  }).catch(() => {});
+                  
+                  fetchDriveStatus();
+                  // Retry upload with fresh token
+                  response = await uploadWithToken(driveToken);
+                }
+                resolve();
+              },
+            });
+            tokenClient.requestAccessToken();
+          });
+        }
+      }
 
       const result = await response.json();
       if (!response.ok) {
         if (response.status === 401) {
-          // Drive OAuth token not present - trigger local JSON download fallback seamlessly
+          // Fallback to local file download
           handleDownloadBackup();
-          alert('💡 Notificación de Respaldo:\n\nPara subir automáticamente a tu unidad personal de Google Drive se requiere iniciar sesión con OAuth de Google Workspace.\n\nSin embargo, ¡tu copia de seguridad completa (.json) ha sido descargada automáticamente a tu dispositivo para mantener tus datos a salvo!');
+          alert('💡 Notificación de Respaldo:\n\nSe requiere autorización de Google Drive para subir el respaldo a la nube.\n\nSin embargo, ¡tu copia de seguridad completa (.json) ha sido descargada a tu equipo!');
           return;
         }
         throw new Error(result.error || 'Error al respaldar en Google Drive');
       }
 
-      alert('¡Respaldo guardado exitosamente en Google Drive!');
+      alert('¡Respaldo guardado exitosamente en tu Google Drive!');
+      fetchDriveStatus();
     } catch (err: any) {
       console.error(err);
       alert('Error: ' + err.message);

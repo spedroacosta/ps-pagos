@@ -3500,11 +3500,26 @@ async function startServer() {
 
       let oauth2Client: any = null;
 
-      // Check for saved tenant Google Drive credentials on server first
+      // Check header token first for direct browser calls
+      const rawToken = req.headers['x-goog-oauth2-access-token'] || 
+                       (req.headers.authorization ? req.headers.authorization.split('Bearer ')[1] : null);
+      const headerToken = Array.isArray(rawToken) ? rawToken[0] : rawToken;
+      const validHeaderToken = (headerToken && typeof headerToken === 'string' && headerToken.trim() !== '' && headerToken !== 'null' && headerToken !== 'undefined') ? headerToken.trim() : null;
+
       const config = await loadTenantConfig(tenantId);
       const gd = config.googleDrive;
 
-      if (gd && (gd.refreshToken || gd.accessToken)) {
+      if (validHeaderToken) {
+        oauth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
+        oauth2Client.setCredentials({ access_token: validHeaderToken });
+
+        if (gd) {
+          gd.accessToken = validHeaderToken;
+          gd.updatedAt = new Date().toISOString();
+          config.googleDrive = gd;
+          await saveTenantConfig(tenantId, config);
+        }
+      } else if (gd && (gd.refreshToken || gd.accessToken)) {
         oauth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
         oauth2Client.setCredentials({
           refresh_token: gd.refreshToken,
@@ -3522,16 +3537,6 @@ async function startServer() {
           } catch (rErr: any) {
             console.warn('[Drive Manual Backup API] Token refresh note:', rErr.message);
           }
-        }
-      } else {
-        // Fallback to header authorization if sent
-        const rawToken = req.headers['x-goog-oauth2-access-token'] || 
-                         (req.headers.authorization ? req.headers.authorization.split('Bearer ')[1] : null);
-        const accessToken = Array.isArray(rawToken) ? rawToken[0] : rawToken;
-
-        if (accessToken && typeof accessToken === 'string' && accessToken.trim() !== '' && accessToken !== 'null' && accessToken !== 'undefined') {
-          oauth2Client = new google.auth.OAuth2();
-          oauth2Client.setCredentials({ access_token: accessToken });
         }
       }
 
@@ -3566,6 +3571,10 @@ async function startServer() {
       res.json({ success: true, fileId: file.data.id });
     } catch (error: any) {
       console.error('Error uploading to Google Drive:', error);
+      const isAuthError = error.code === 401 || error.code === 403 || (error.message && (error.message.includes('invalid authentication credentials') || error.message.includes('OAuth 2 access token') || error.message.includes('invalid_grant')));
+      if (isAuthError) {
+        return res.status(401).json({ error: 'La credencial de Google Drive ha expirado o no es válida. Por favor haz clic en "Vincular Google Drive" para autorizar de nuevo.', details: error.message });
+      }
       res.status(500).json({ error: 'Error al subir el respaldo a Google Drive: ' + (error.message || 'Error desconocido'), details: error.message });
     }
   });
