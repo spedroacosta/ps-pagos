@@ -262,7 +262,7 @@ export function calculateMemberSolvency(
       }).format(now);
     } catch (e) {}
 
-    const lateFeeMonths: string[] = [];
+    const candidateLateFeeMonths: string[] = [];
     months.forEach((month) => {
       const isPastOrCurrent =
         month.year < currentYear ||
@@ -291,7 +291,7 @@ export function calculateMemberSolvency(
       
       if (mStatus && (mStatus.status === 'deuda' || mStatus.status === 'parcial')) {
         if (todayStr >= fineDeadlineDate) {
-          lateFeeMonths.push(month.id);
+          candidateLateFeeMonths.push(month.id);
         }
       } else if (mStatus && mStatus.status === 'solvente') {
         const monthPays = memberPayments.filter((p) => p.targetType === 'month' && p.targetId === month.id);
@@ -309,18 +309,40 @@ export function calculateMemberSolvency(
 
         // If the date it was finally paid is on or after the deadline, the fine stays
         if (lastPayDate && lastPayDate >= fineDeadlineDate) {
-          lateFeeMonths.push(month.id);
+          candidateLateFeeMonths.push(month.id);
         }
       }
     });
 
-    const lateFeesCount = lateFeeMonths.length;
-    const totalLateFeesUSD_direct = lateFeesCount * (lateFeeConfig.feeUSD_direct ?? 2);
-    const totalLateFeesUSD_bcv = lateFeesCount * (lateFeeConfig.feeUSD_bcv ?? 3);
+    const feeUSD_direct = lateFeeConfig.feeUSD_direct ?? 2;
+    const feeUSD_bcv = lateFeeConfig.feeUSD_bcv ?? 3;
+    const totalLateFeesUSD_direct = candidateLateFeeMonths.length * feeUSD_direct;
+    const totalLateFeesUSD_bcv = candidateLateFeeMonths.length * feeUSD_bcv;
 
     const lateFeePayments = memberPayments.filter((p) => p.targetType === 'late_fee');
     const paidLateFeesUSD = lateFeePayments.reduce((sum, p) => sum + normalizeUsdAmount(p.amountUSD), 0);
     const owedLateFeesUSD = Math.max(0, totalLateFeesUSD_direct - paidLateFeesUSD);
+
+    // Determine which candidate fine months remain UNPAID
+    let remainingPaidUSD = paidLateFeesUSD;
+    const unpaidLateFeeMonths: string[] = [];
+
+    candidateLateFeeMonths.forEach((mId) => {
+      // Check if specifically paid for this month
+      const hasSpecificPayment = lateFeePayments.some((p) => p.targetId === mId);
+      if (hasSpecificPayment) {
+        return; // Satisfied by targeted fine payment
+      }
+
+      if (feeUSD_direct > 0 && remainingPaidUSD >= feeUSD_direct - 0.001) {
+        remainingPaidUSD -= feeUSD_direct;
+        // Satisfied by general fine payment
+      } else {
+        unpaidLateFeeMonths.push(mId);
+      }
+    });
+
+    const lateFeesCount = unpaidLateFeeMonths.length;
 
     lateFeesSummary = {
       lateFeesCount,
@@ -328,7 +350,7 @@ export function calculateMemberSolvency(
       totalLateFeesUSD_bcv,
       paidLateFeesUSD,
       owedLateFeesUSD,
-      lateFeeMonths,
+      lateFeeMonths: unpaidLateFeeMonths,
     };
 
     totalOwedUSD += owedLateFeesUSD;

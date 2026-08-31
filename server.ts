@@ -220,7 +220,7 @@ async function loadTenantConfig(tenantId: string): Promise<TenantConfig> {
       }
     } catch (err) {
       console.error('Error loading config from Firestore:', err);
-      throw new Error('Timeout consultando configuración. Intenta nuevamente.');
+      // Fallback to local config file below
     }
   }
 
@@ -3434,11 +3434,14 @@ async function migrateLegacySingleTenantData() {
 // Start multi-tenant active bots on startup
 async function initAllActiveTelegramBots() {
   console.log('Initializing active Telegram Bots for all registered tenants...');
-  let list: Record<string, Tenant> = {};
+  let list: Record<string, Tenant> = {
+    'original': { id: 'original', name: 'Promoción Principal' } as Tenant
+  };
 
   try {
     if (fs.existsSync(TENANTS_FILE)) {
-      list = JSON.parse(fs.readFileSync(TENANTS_FILE, 'utf-8'));
+      const fileList = JSON.parse(fs.readFileSync(TENANTS_FILE, 'utf-8'));
+      list = { ...list, ...fileList };
     }
   } catch (err) {
     console.error('Error reading tenants list from file on startup:', err);
@@ -3460,22 +3463,8 @@ async function initAllActiveTelegramBots() {
     try {
       const config = await loadTenantConfig(tenantId);
       if (config && config.telegram && config.telegram.enabled && config.telegram.botToken) {
-        if (process.env.NODE_ENV !== 'production' && !process.env.RENDER_EXTERNAL_URL) {
-          console.log(`Starting Telegram Bot Poller for Tenant: ${tenantId}...`);
-          startTenantTelegramBot(tenantId, config.telegram.botToken, config.telegram.chatIdAllowed);
-        } else {
-          const baseUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
-          if (baseUrl) {
-             const webhookUrl = `${baseUrl}/api/telegram-webhook/${tenantId}`;
-             console.log(`Registering Webhook on boot for Tenant: ${tenantId} -> ${webhookUrl}`);
-             fetch(`https://api.telegram.org/bot${config.telegram.botToken}/setWebhook?url=${encodeURIComponent(webhookUrl)}`)
-               .then(res => res.json())
-               .then(data => console.log(`[Boot Webhook Tenant: ${tenantId}] Result:`, data))
-               .catch(err => console.error(`[Boot Webhook Tenant: ${tenantId}] Error:`, err.message));
-          } else {
-             console.log(`Skipping Telegram Poller for Tenant: ${tenantId} (Production, but no RENDER_EXTERNAL_URL provided. Assuming webhook is already active.)`);
-          }
-        }
+        console.log(`[Boot] Starting Telegram Bot Poller for Tenant: ${tenantId}...`);
+        startTenantTelegramBot(tenantId, config.telegram.botToken, config.telegram.chatIdAllowed);
       }
     } catch (err) {
       console.error(`Failed to load/initialize Telegram bot for tenant ${tenantId}:`, err);
