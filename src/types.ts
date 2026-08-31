@@ -1,11 +1,10 @@
-export type PaymentMethod = 
-  | 'pago_movil' 
-  | 'transferencia_ves' 
-  | 'efectivo_usd' 
-  | 'efectivo_ves' 
-  
-  | 'binance'
-  | 'otro';
+export interface CustomPaymentMethod {
+  id: string;
+  name: string;
+  currency: 'USD' | 'VES';
+}
+
+export type PaymentMethod = string;
 
 export interface Member {
   id: string;

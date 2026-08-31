@@ -14,7 +14,7 @@ import { SuperAdminPanel } from './components/SuperAdminPanel';
 import { PublicQueryPortal } from './components/PublicQueryPortal';
 import { getTenantHeaders, clearTenantCredentials } from './utils/api';
 
-import { Member, MonthConfig, SpecialQuota, PaymentEntry, DollarPurchase, MemberSolvencySummary, LateFeeConfig, ExpenseEntry, ExpenseConfig } from './types';
+import { Member, MonthConfig, SpecialQuota, PaymentEntry, DollarPurchase, MemberSolvencySummary, LateFeeConfig, ExpenseEntry, ExpenseConfig, CustomPaymentMethod } from './types';
 import {
   INITIAL_MEMBERS,
   INITIAL_MONTHS,
@@ -205,6 +205,9 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
 
   const [activeTab, setActiveTab] = useState<string>(initialTab);
   const [bcvRate, setBcvRate] = useState<number>(41.85);
+  const [rateSource, setRateSource] = useState<'usd_bcv' | 'eur_bcv' | 'custom'>('usd_bcv');
+  const [customRateValue, setCustomRateValue] = useState<number>(0);
+  const [customPaymentMethods, setCustomPaymentMethods] = useState<CustomPaymentMethod[]>([]);
   const [isRefreshingBcv, setIsRefreshingBcv] = useState<boolean>(false);
 
   const hasLocalBackup = typeof window !== 'undefined' && !!localStorage.getItem('promo_members');
@@ -468,11 +471,13 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
     
   };
 
-  // Fetch BCV Currency Rates
+  // Fetch BCV Currency Rates (respecting tenant rate source: USD, EUR or Custom)
   const fetchBcvRate = async (force = false) => {
     setIsRefreshingBcv(true);
     try {
-      const res = await fetch(`/api/bcv${force ? '?force=true' : ''}`);
+      const res = await fetch(`/api/bcv${force ? '?force=true' : ''}`, {
+        headers: getTenantHeaders()
+      });
       const data = await res.json();
       if (data && data.rate && !isNaN(data.rate)) {
         setBcvRate(data.rate);
@@ -480,8 +485,6 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
     } catch (e) {
       console.log("Error fetching BCV rate", e);
     } finally {
-
-
       setIsRefreshingBcv(false);
     }
   };
@@ -490,7 +493,30 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
     fetchBcvRate(true);
     const interval = setInterval(() => fetchBcvRate(true), 10 * 60 * 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [tenantId]);
+
+  // Load tenant configuration (custom payment methods, rate source)
+  useEffect(() => {
+    if (!tenantId || tenantId === 'superadmin') return;
+    async function loadTenantConfig() {
+      try {
+        const res = await fetch('/api/tenant/config', {
+          headers: getTenantHeaders()
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success) {
+            if (Array.isArray(json.customPaymentMethods)) setCustomPaymentMethods(json.customPaymentMethods);
+            if (json.rateSource) setRateSource(json.rateSource);
+            if (json.customRateValue !== undefined) setCustomRateValue(json.customRateValue);
+          }
+        }
+      } catch (e) {
+        console.log('Error loading tenant config:', e);
+      }
+    }
+    loadTenantConfig();
+  }, [tenantId]);
 
   // Modals state
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -856,6 +882,15 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
             expenseCategories={expenseCategories}
             onAddExpenseCategory={handleAddExpenseCategory}
             onDeleteExpenseCategory={handleDeleteExpenseCategory}
+            customPaymentMethods={customPaymentMethods}
+            rateSource={rateSource}
+            customRateValue={customRateValue}
+            onUpdateTenantConfig={(newCfg) => {
+              if (newCfg.customPaymentMethods) setCustomPaymentMethods(newCfg.customPaymentMethods);
+              if (newCfg.rateSource) setRateSource(newCfg.rateSource);
+              if (newCfg.customRateValue !== undefined) setCustomRateValue(newCfg.customRateValue);
+              fetchBcvRate(true);
+            }}
           />
         </div>
       </main>
@@ -872,6 +907,7 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
         quotas={quotas}
         payments={payments}
         currentBcvRate={bcvRate}
+        customPaymentMethods={customPaymentMethods}
         onSavePayment={handleSavePayment}
         onSaveBatchPayments={handleBatchAddPayments}
         editingPayment={editingPayment}
@@ -891,6 +927,7 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
           months={months}
           quotas={quotas}
           payments={payments}
+          customPaymentMethods={customPaymentMethods}
         />
       )}
     </div>

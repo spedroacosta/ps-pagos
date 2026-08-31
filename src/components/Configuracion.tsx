@@ -33,10 +33,12 @@ import {
   Tag,
   ToggleLeft,
   ToggleRight,
+  CreditCard,
 } from 'lucide-react';
-import { MonthConfig, SpecialQuota, Member, PaymentEntry, DollarPurchase, LateFeeConfig, ExpenseConfig } from '../types';
+import { MonthConfig, SpecialQuota, Member, PaymentEntry, DollarPurchase, LateFeeConfig, ExpenseConfig, CustomPaymentMethod } from '../types';
 import { getTenantHeaders } from '../utils/api';
 import { ConversionCalculator } from './ConversionCalculator';
+import { getAllPaymentMethods, DEFAULT_PAYMENT_METHODS } from '../utils/calculations';
 
 interface ConfiguracionProps {
   months: MonthConfig[];
@@ -72,6 +74,10 @@ interface ConfiguracionProps {
   expenseCategories?: string[];
   onAddExpenseCategory?: (categoryName: string) => void;
   onDeleteExpenseCategory?: (categoryName: string) => void;
+  customPaymentMethods?: CustomPaymentMethod[];
+  rateSource?: 'usd_bcv' | 'eur_bcv' | 'custom';
+  customRateValue?: number;
+  onUpdateTenantConfig?: (newConfig: { customPaymentMethods?: CustomPaymentMethod[]; rateSource?: 'usd_bcv' | 'eur_bcv' | 'custom'; customRateValue?: number }) => void;
 }
 
 export const Configuracion: React.FC<ConfiguracionProps> = ({
@@ -102,6 +108,10 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
   expenseCategories = ['Logística', 'Eventos', 'Administrativo', 'Protocolo', 'Imprevistos'],
   onAddExpenseCategory,
   onDeleteExpenseCategory,
+  customPaymentMethods = [],
+  rateSource = 'usd_bcv',
+  customRateValue = 0,
+  onUpdateTenantConfig,
 }) => {
 
   // Navigation Sub-Tabs
@@ -116,6 +126,99 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
   const [profileStatus, setProfileStatus] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [dragCircularActive, setDragCircularActive] = useState(false);
+
+  // --- Payment Methods & Exchange Rate Config State ---
+  const [customMethodsList, setCustomMethodsList] = useState<CustomPaymentMethod[]>(customPaymentMethods);
+  const [newMethodName, setNewMethodName] = useState('');
+  const [newMethodCurrency, setNewMethodCurrency] = useState<'USD' | 'VES'>('VES');
+  const [selectedRateSource, setSelectedRateSource] = useState<'usd_bcv' | 'eur_bcv' | 'custom'>(rateSource);
+  const [customRateInput, setCustomRateInput] = useState<string>(customRateValue > 0 ? String(customRateValue) : '');
+  const [isSavingGeneralConfig, setIsSavingGeneralConfig] = useState(false);
+  const [generalConfigStatus, setGeneralConfigStatus] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+
+  useEffect(() => {
+    setCustomMethodsList(customPaymentMethods);
+  }, [customPaymentMethods]);
+
+  useEffect(() => {
+    setSelectedRateSource(rateSource);
+  }, [rateSource]);
+
+  useEffect(() => {
+    if (customRateValue > 0) setCustomRateInput(String(customRateValue));
+  }, [customRateValue]);
+
+  // Load tenant configuration on startup
+  useEffect(() => {
+    fetch('/api/tenant/config', {
+      headers: getTenantHeaders()
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.success) {
+          if (Array.isArray(data.customPaymentMethods)) setCustomMethodsList(data.customPaymentMethods);
+          if (data.rateSource) setSelectedRateSource(data.rateSource);
+          if (data.customRateValue > 0) setCustomRateInput(String(data.customRateValue));
+        }
+      })
+      .catch((err) => console.error('Error fetching tenant config:', err));
+  }, [tenantId]);
+
+  const handleAddCustomPaymentMethod = () => {
+    if (!newMethodName.trim()) return;
+    const methodId = 'custom_' + newMethodName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') + '_' + Date.now().toString(36);
+    const newMethod: CustomPaymentMethod = {
+      id: methodId,
+      name: newMethodName.trim(),
+      currency: newMethodCurrency
+    };
+    const updated = [...customMethodsList, newMethod];
+    setCustomMethodsList(updated);
+    setNewMethodName('');
+  };
+
+  const handleDeleteCustomPaymentMethod = (id: string) => {
+    const updated = customMethodsList.filter(m => m.id !== id);
+    setCustomMethodsList(updated);
+  };
+
+  const handleSaveGeneralConfig = async () => {
+    setIsSavingGeneralConfig(true);
+    setGeneralConfigStatus(null);
+    try {
+      const parsedRate = parseFloat(customRateInput) || 0;
+      const res = await fetch('/api/tenant/config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getTenantHeaders()
+        },
+        body: JSON.stringify({
+          customPaymentMethods: customMethodsList,
+          rateSource: selectedRateSource,
+          customRateValue: parsedRate,
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setGeneralConfigStatus({ type: 'success', msg: '🎉 ¡Configuración de Métodos de Pago y Tasa de Referencia guardada exitosamente!' });
+        if (onUpdateTenantConfig) {
+          onUpdateTenantConfig({
+            customPaymentMethods: customMethodsList,
+            rateSource: selectedRateSource,
+            customRateValue: parsedRate,
+          });
+        }
+      } else {
+        setGeneralConfigStatus({ type: 'error', msg: data.error || 'Error al guardar la configuración' });
+      }
+    } catch (err: any) {
+      setGeneralConfigStatus({ type: 'error', msg: `Error de conexión: ${err.message}` });
+    } finally {
+      setIsSavingGeneralConfig(false);
+    }
+  };
 
   // Sync profile values when props change
   useEffect(() => {
@@ -1208,6 +1311,197 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
               </button>
             </div>
           </form>
+
+          {/* Module: Métodos de Pago & Tasa de Referencia Configuration */}
+          <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-6 pt-6 mt-6 border-t border-slate-100">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-indigo-50 text-[#162e58] rounded-xl">
+                  <CreditCard className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-slate-900 text-sm">Métodos de Pago & Tasa de Referencia BCV</h4>
+                  <p className="text-xs text-slate-500">
+                    Agrega nuevos métodos de pago personalizados para tu promoción y selecciona el tipo de tasa oficial (USD, EUR o Tasa Personalizada).
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {generalConfigStatus && (
+              <div
+                className={`p-3.5 rounded-xl text-xs font-semibold flex items-start space-x-2.5 ${
+                  generalConfigStatus.type === 'success'
+                    ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                    : 'bg-rose-50 border border-rose-200 text-rose-800'
+                }`}
+              >
+                {generalConfigStatus.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                )}
+                <span>{generalConfigStatus.msg}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Section 1: Exchange Rate Source */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-4">
+                <h5 className="font-bold text-xs uppercase tracking-wider text-slate-800 flex items-center space-x-2 border-b border-slate-200 pb-2">
+                  <Server className="w-4 h-4 text-[#162e58]" />
+                  <span>Tasa BCV de Referencia</span>
+                </h5>
+
+                <div className="space-y-2.5">
+                  <label className="flex items-center space-x-3 bg-white p-3 rounded-xl border border-slate-200 cursor-pointer hover:border-slate-300">
+                    <input
+                      type="radio"
+                      name="rateSource"
+                      value="usd_bcv"
+                      checked={selectedRateSource === 'usd_bcv'}
+                      onChange={() => setSelectedRateSource('usd_bcv')}
+                      className="text-[#162e58] focus:ring-[#162e58]"
+                    />
+                    <div>
+                      <span className="font-bold text-xs text-slate-900 block">Dólar BCV ($ USD)</span>
+                      <span className="text-[10px] text-slate-500">Obtiene automáticamente la tasa diaria del Dólar oficial del Banco Central de Venezuela.</span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center space-x-3 bg-white p-3 rounded-xl border border-slate-200 cursor-pointer hover:border-slate-300">
+                    <input
+                      type="radio"
+                      name="rateSource"
+                      value="eur_bcv"
+                      checked={selectedRateSource === 'eur_bcv'}
+                      onChange={() => setSelectedRateSource('eur_bcv')}
+                      className="text-[#162e58] focus:ring-[#162e58]"
+                    />
+                    <div>
+                      <span className="font-bold text-xs text-slate-900 block">Euro BCV (€ EUR)</span>
+                      <span className="text-[10px] text-slate-500">Obtiene automáticamente la tasa diaria del Euro oficial del Banco Central de Venezuela.</span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center space-x-3 bg-white p-3 rounded-xl border border-slate-200 cursor-pointer hover:border-slate-300">
+                    <input
+                      type="radio"
+                      name="rateSource"
+                      value="custom"
+                      checked={selectedRateSource === 'custom'}
+                      onChange={() => setSelectedRateSource('custom')}
+                      className="text-[#162e58] focus:ring-[#162e58]"
+                    />
+                    <div>
+                      <span className="font-bold text-xs text-slate-900 block">Tasa Personalizada Arbitraria</span>
+                      <span className="text-[10px] text-slate-500">Establece una tasa fijada manualmente por la comisión directiva de la promoción.</span>
+                    </div>
+                  </label>
+                </div>
+
+                {selectedRateSource === 'custom' && (
+                  <div className="pt-2">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                      Monto de Tasa Personalizada (Bs)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={customRateInput}
+                      onChange={(e) => setCustomRateInput(e.target.value)}
+                      placeholder="ej: 80.00"
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#162e58]"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Section 2: Custom Payment Methods */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-4">
+                <h5 className="font-bold text-xs uppercase tracking-wider text-slate-800 flex items-center space-x-2 border-b border-slate-200 pb-2">
+                  <CreditCard className="w-4 h-4 text-[#162e58]" />
+                  <span>Métodos de Pago Registrados</span>
+                </h5>
+
+                {/* List of active methods */}
+                <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                  {getAllPaymentMethods(customMethodsList).map((m) => {
+                    const isDefault = DEFAULT_PAYMENT_METHODS.some(dm => dm.id === m.id);
+                    return (
+                      <div key={m.id} className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border border-slate-200 text-xs">
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold text-slate-800">{m.name}</span>
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${m.currency === 'USD' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'}`}>
+                            {m.currency}
+                          </span>
+                          {isDefault && (
+                            <span className="text-[9px] text-slate-400 font-semibold">(Por defecto)</span>
+                          )}
+                        </div>
+                        {!isDefault && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCustomPaymentMethod(m.id)}
+                            className="text-slate-400 hover:text-rose-600 p-1 rounded cursor-pointer transition-colors"
+                            title="Eliminar método personalizado"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Add new custom method */}
+                <div className="pt-2 border-t border-slate-200 space-y-2">
+                  <span className="text-[11px] font-bold text-slate-700 uppercase block">Añadir Nuevo Método de Pago</span>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newMethodName}
+                      onChange={(e) => setNewMethodName(e.target.value)}
+                      placeholder="ej: Mercantil Panamá, Zinli, PayPal"
+                      className="flex-1 bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#162e58]"
+                    />
+                    <select
+                      value={newMethodCurrency}
+                      onChange={(e) => setNewMethodCurrency(e.target.value as 'USD' | 'VES')}
+                      className="bg-white border border-slate-300 rounded-xl px-2 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#162e58]"
+                    >
+                      <option value="VES">Bolívares (VES)</option>
+                      <option value="USD">Dólares ($ USD)</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleAddCustomPaymentMethod}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl cursor-pointer flex items-center space-x-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Agregar</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={handleSaveGeneralConfig}
+                disabled={isSavingGeneralConfig}
+                className="bg-[#162e58] hover:bg-[#0a1e3f] text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-xs flex items-center space-x-1.5 cursor-pointer disabled:opacity-50 transition-colors"
+              >
+                {isSavingGeneralConfig ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                <span>Guardar Tasa y Métodos de Pago</span>
+              </button>
+            </div>
+          </div>
 
           {/* Module: Egresos y Gastos Configuration */}
           <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4 pt-6 mt-6 border-t border-slate-100">

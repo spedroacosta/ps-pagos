@@ -100,10 +100,19 @@ export interface TelegramConfig {
   enabled: boolean;
 }
 
+export interface CustomPaymentMethod {
+  id: string;
+  name: string;
+  currency: 'USD' | 'VES';
+}
+
 export interface TenantConfig {
   smtp: SmtpConfig;
   telegram: TelegramConfig;
   telegramLogs: { timestamp: string; message: string; success: boolean }[];
+  customPaymentMethods?: CustomPaymentMethod[];
+  rateSource?: 'usd_bcv' | 'eur_bcv' | 'custom';
+  customRateValue?: number;
   googleDrive?: {
     accessToken?: string;
     refreshToken?: string;
@@ -1512,9 +1521,89 @@ async function getOrFetchCurrentBcvRate(forceRefresh = false): Promise<number> {
   return cachedBcvRate.rate || 138.50;
 }
 
-// GET /api/bcv - Fetch BCV Rate directly from official APIs
+// Cache for Euro BCV rate
+let cachedEuroBcvRate = {
+  rate: 85.00,
+  date: getCaracasDateString(),
+  source: 'Tasa Euro BCV Oficial',
+  lastUpdated: 0,
+};
+
+async function getOrFetchEuroBcvRate(forceRefresh = false): Promise<number> {
+  const cacheAge = Date.now() - cachedEuroBcvRate.lastUpdated;
+  if (!forceRefresh && cacheAge < 900000 && cachedEuroBcvRate.lastUpdated > 0 && cachedEuroBcvRate.rate > 10) {
+    return cachedEuroBcvRate.rate;
+  }
+
+  // 1. DolarApi Euro endpoint
+  try {
+    const response = await fetch('https://ve.dolarapi.com/v1/euros/oficial');
+    if (response.ok) {
+      const data = await response.json();
+      const parsed = parseFloat(data?.promedio || data?.precio);
+      if (!isNaN(parsed) && parsed > 10) {
+        cachedEuroBcvRate = {
+          rate: parsed,
+          date: data.fechaActualizacion || getCaracasDateString(),
+          source: 'Euro BCV Oficial (DolarApi)',
+          lastUpdated: Date.now(),
+        };
+        console.log(`[Tasa Euro BCV] Obtenida exitosamente de API (DolarApi Euro): ${parsed} Bs/€`);
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.warn('[Tasa Euro BCV] Error al consultar DolarApi Euro:', e);
+  }
+
+  // 2. Backup fallback: Direct BCV website portal
+  try {
+    const bcvRes = await fetch('https://www.bcv.org.ve/', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+    });
+
+    if (bcvRes.ok) {
+      const html = await bcvRes.text();
+      const euroMatch = html.match(/id="euro"[\s\S]*?<strong>\s*([0-9.,]+)\s*<\/strong>/i) ||
+                        html.match(/EUR[\s\S]*?<strong>\s*([0-9.,]+)\s*<\/strong>/i);
+      if (euroMatch && euroMatch[1]) {
+        const rawNumStr = euroMatch[1].trim().replace(',', '.');
+        const parsedRate = parseFloat(rawNumStr);
+        if (!isNaN(parsedRate) && parsedRate > 10) {
+          cachedEuroBcvRate = {
+            rate: parsedRate,
+            date: getCaracasDateString(),
+            source: 'Euro BCV Oficial Portal (bcv.org.ve)',
+            lastUpdated: Date.now(),
+          };
+          console.log(`[Tasa Euro BCV] Obtenida directamente del portal oficial BCV: ${parsedRate} Bs/€`);
+          return parsedRate;
+        }
+      }
+    }
+  } catch (bcvErr) {
+    console.warn('[Tasa Euro BCV] Fallback portal BCV falló:', bcvErr);
+  }
+
+  return cachedEuroBcvRate.rate || 85.00;
+}
+
+// GET /api/bcv - Fetch BCV Rate directly from official APIs or tenant custom configuration
 app.get('/api/bcv', async (req, res) => {
   try {
+    const tenantIdHeader = (req.headers['x-tenant-id'] as string) || (req.query.tenantId as string);
+    let rateSource = 'usd_bcv';
+    let customRateValue = 0;
+
+    if (tenantIdHeader) {
+      const tenantConf = await loadTenantConfig(tenantIdHeader);
+      rateSource = tenantConf.rateSource || 'usd_bcv';
+      customRateValue = tenantConf.customRateValue || 0;
+    }
+
     const dateQuery = req.query.date as string | undefined;
     if (dateQuery && /^\d{4}-\d{2}-\d{2}$/.test(dateQuery)) {
       const today = getCaracasDateString();
@@ -1525,15 +1614,45 @@ app.get('/api/bcv', async (req, res) => {
             rate: histRate,
             date: dateQuery,
             source: `Gemini Histórico (${dateQuery})`,
+            rateSource,
             historical: true
           });
         }
       }
     }
 
+    if (rateSource === 'custom' && customRateValue > 0) {
+      return res.json({
+        rate: customRateValue,
+        date: getCaracasDateString(),
+        source: 'Tasa Diaria Personalizada',
+        rateSource: 'custom',
+        symbol: 'Bs',
+        label: `Tasa Personalizada: ${customRateValue.toFixed(2)} Bs`
+      });
+    }
+
+    if (rateSource === 'eur_bcv') {
+      const forceRefresh = req.query.force === 'true';
+      const rate = await getOrFetchEuroBcvRate(forceRefresh);
+      return res.json({
+        ...cachedEuroBcvRate,
+        rate,
+        rateSource: 'eur_bcv',
+        symbol: 'Bs/EUR',
+        label: `Tasa Euro BCV: 1 EUR = ${rate.toFixed(2)} Bs`
+      });
+    }
+
     const forceRefresh = req.query.force === 'true';
     const rate = await getOrFetchCurrentBcvRate(forceRefresh);
-    res.json({ ...cachedBcvRate, rate });
+    res.json({
+      ...cachedBcvRate,
+      rate,
+      rateSource: 'usd_bcv',
+      symbol: 'Bs/USD',
+      label: `Tasa Dólar BCV: 1 USD = ${rate.toFixed(2)} Bs`
+    });
   } catch (err: any) {
     res.json(cachedBcvRate);
   }
@@ -2327,6 +2446,51 @@ app.post('/api/tenant/profile', tenantAuthMiddleware, async (req: any, res) => {
   } catch (err: any) {
     console.error('Error in POST /api/tenant/profile:', err);
     res.status(500).json({ error: 'Error interno al guardar los cambios de perfil' });
+  }
+});
+
+// GET /api/tenant/config - Load general tenant configuration (payment methods, exchange rate source)
+app.get('/api/tenant/config', tenantAuthMiddleware, async (req: any, res) => {
+  try {
+    const config = await loadTenantConfig(req.tenantId);
+    res.json({
+      success: true,
+      customPaymentMethods: config.customPaymentMethods || [],
+      rateSource: config.rateSource || 'usd_bcv',
+      customRateValue: config.customRateValue || 0,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Error al cargar la configuración de la promoción.' });
+  }
+});
+
+// POST /api/tenant/config - Update tenant configuration
+app.post('/api/tenant/config', tenantAuthMiddleware, async (req: any, res) => {
+  try {
+    const { customPaymentMethods, rateSource, customRateValue } = req.body;
+    const config = await loadTenantConfig(req.tenantId);
+
+    if (Array.isArray(customPaymentMethods)) {
+      config.customPaymentMethods = customPaymentMethods;
+    }
+    if (rateSource && ['usd_bcv', 'eur_bcv', 'custom'].includes(rateSource)) {
+      config.rateSource = rateSource;
+    }
+    if (typeof customRateValue === 'number') {
+      config.customRateValue = customRateValue;
+    }
+
+    await saveTenantConfig(req.tenantId, config);
+
+    res.json({
+      success: true,
+      message: '¡Configuración de la promoción actualizada con éxito!',
+      customPaymentMethods: config.customPaymentMethods || [],
+      rateSource: config.rateSource || 'usd_bcv',
+      customRateValue: config.customRateValue || 0,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Error al guardar la configuración de la promoción.' });
   }
 });
 

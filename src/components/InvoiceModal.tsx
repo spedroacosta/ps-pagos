@@ -2,8 +2,8 @@
 import { X, Printer, Mail, CheckCircle2, AlertTriangle, GraduationCap, FileText, Calendar, Download, Send } from 'lucide-react';
 import html2canvas from 'html2canvas-pro';
 import { jsPDF } from 'jspdf';
-import { Member, MonthConfig, SpecialQuota, MemberSolvencySummary, PaymentEntry } from '../types';
-import { formatUSD, formatVES, getMethodLabel, getCaracasDateString } from '../utils/calculations';
+import { Member, MonthConfig, SpecialQuota, MemberSolvencySummary, PaymentEntry, CustomPaymentMethod } from '../types';
+import { formatUSD, formatVES, getMethodLabel, getCaracasDateString, getAllPaymentMethods } from '../utils/calculations';
 import { getTenantHeaders } from '../utils/api';
 
 interface InvoiceModalProps {
@@ -15,6 +15,7 @@ interface InvoiceModalProps {
   quotas: SpecialQuota[];
   payments: PaymentEntry[];
   initialTargetId?: string;
+  customPaymentMethods?: CustomPaymentMethod[];
 }
 
 export const InvoiceModal: React.FC<InvoiceModalProps> = ({
@@ -26,6 +27,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   quotas,
   payments,
   initialTargetId,
+  customPaymentMethods = [],
 }) => {
   const rawMemberPaymentsInit = payments.filter(p => p.memberId === member?.id);
   const latestTx = rawMemberPaymentsInit.length > 0 ? rawMemberPaymentsInit[rawMemberPaymentsInit.length - 1] : null;
@@ -537,34 +539,25 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
             <h3 className="text-[10px] font-black uppercase tracking-wider text-slate-950 mb-3">
               Método de Pago
             </h3>
-            <div className="flex flex-wrap gap-x-8 gap-y-2 text-[10px] font-black text-slate-950 uppercase tracking-wide">
+            <div className="flex flex-wrap gap-x-6 gap-y-2 text-[10px] font-black text-slate-950 uppercase tracking-wide">
               {(() => {
-                const hasEfectivo = targetPayments.some(p => p.method === 'efectivo_usd');
-                const hasPagoMovil = targetPayments.some(p => ['pago_movil', 'transferencia_ves'].includes(p.method));
-                const hasBinance = targetPayments.some(p => p.method === 'binance');
+                const allMethods = getAllPaymentMethods(customPaymentMethods);
+                const usedMethodKeys = new Set(displayPayments.map((p) => p.method));
+                if (usedMethodKeys.size === 0 && selectedTx) {
+                  usedMethodKeys.add(selectedTx.method);
+                }
 
-                return (
-                  <>
-                    <div className="flex items-center space-x-2">
-                      <span>Efectivo</span>
-                      <div className="w-5 h-5 border-2 border-slate-950 flex items-center justify-center font-bold text-xs bg-white">
-                        {hasEfectivo ? '✓' : ''}
+                return allMethods.map((m) => {
+                  const isUsed = usedMethodKeys.has(m.id);
+                  return (
+                    <div key={m.id} className="flex items-center space-x-1.5">
+                      <span>{m.name}</span>
+                      <div className="w-4 h-4 border border-slate-950 flex items-center justify-center font-bold text-[10px] bg-white">
+                        {isUsed ? '✓' : ''}
                       </div>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <span>Pago Móvil</span>
-                      <div className="w-5 h-5 border-2 border-slate-950 flex items-center justify-center font-bold text-xs bg-white">
-                        {hasPagoMovil ? '✓' : ''}
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <span>Binance</span>
-                      <div className="w-5 h-5 border-2 border-slate-950 flex items-center justify-center font-bold text-xs bg-white">
-                        {hasBinance ? '✓' : ''}
-                      </div>
-                    </div>
-                  </>
-                );
+                  );
+                });
               })()}
             </div>
           </div>

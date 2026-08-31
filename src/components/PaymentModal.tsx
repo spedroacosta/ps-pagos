@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, DollarSign, Calculator, Calendar, Tag, CreditCard, Hash, FileText, CheckCircle2, CheckSquare, Square } from 'lucide-react';
-import { Member, MonthConfig, SpecialQuota, PaymentMethod, PaymentEntry } from '../types';
-import { formatUSD, formatVES, distributePaymentAcrossConcepts, getCaracasDateString } from '../utils/calculations';
+import { Member, MonthConfig, SpecialQuota, PaymentMethod, PaymentEntry, CustomPaymentMethod } from '../types';
+import { formatUSD, formatVES, distributePaymentAcrossConcepts, getCaracasDateString, getAllPaymentMethods, isUsdMethod } from '../utils/calculations';
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -18,6 +18,7 @@ interface PaymentModalProps {
   initialMemberId?: string;
   initialTargetType?: 'month' | 'quota' | 'late_fee';
   initialTargetId?: string;
+  customPaymentMethods?: CustomPaymentMethod[];
 }
 
 export const PaymentModal: React.FC<PaymentModalProps> = ({
@@ -35,6 +36,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   initialMemberId = '',
   initialTargetType = 'month',
   initialTargetId = '',
+  customPaymentMethods = [],
 }) => {
   const [memberId, setMemberId] = useState(initialMemberId);
   const [method, setMethod] = useState<PaymentMethod>('pago_movil');
@@ -112,11 +114,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
   const handleMethodChange = (newMethod: PaymentMethod) => {
     setMethod(newMethod);
-    if (newMethod === 'efectivo_usd' || newMethod === 'binance') {
-      setCurrency('USD');
-    } else if (newMethod === 'pago_movil' || newMethod === 'transferencia_ves') {
-      setCurrency('VES');
-    }
+    const isUSD = isUsdMethod(newMethod, undefined, customPaymentMethods);
+    setCurrency(isUSD ? 'USD' : 'VES');
   };
 
   const numAmount = parseFloat(amountOriginal) || 0;
@@ -147,8 +146,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       months,
       quotas,
       existingPayments: filteredPayments,
+      customMethods: customPaymentMethods,
     });
-  }, [memberId, selectedConcepts, numAmount, currency, method, bcvRate, months, quotas, payments, editingPayment]);
+  }, [memberId, selectedConcepts, numAmount, currency, method, bcvRate, months, quotas, payments, editingPayment, customPaymentMethods]);
 
   if (!isOpen) return null;
 
@@ -442,10 +442,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1">Método de Pago</label>
               <select value={method} onChange={(e) => handleMethodChange(e.target.value as PaymentMethod)} className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer">
-                <option value="pago_movil">Pago móvil</option>
-                <option value="transferencia_ves">Transferencia</option>
-                <option value="efectivo_usd">Efectivo $</option>
-                <option value="binance">Binance</option>
+                {getAllPaymentMethods(customPaymentMethods).map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} ({m.currency})
+                  </option>
+                ))}
               </select>
             </div>
             <div>

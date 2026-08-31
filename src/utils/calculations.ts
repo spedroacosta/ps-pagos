@@ -1,4 +1,31 @@
-import { Member, MonthConfig, SpecialQuota, PaymentEntry, MemberSolvencySummary, LateFeeConfig } from '../types';
+import { Member, MonthConfig, SpecialQuota, PaymentEntry, MemberSolvencySummary, LateFeeConfig, CustomPaymentMethod } from '../types';
+
+export const DEFAULT_PAYMENT_METHODS: CustomPaymentMethod[] = [
+  { id: 'pago_movil', name: 'Pago Móvil', currency: 'VES' },
+  { id: 'transferencia_ves', name: 'Transferencia Bs', currency: 'VES' },
+  { id: 'efectivo_ves', name: 'Efectivo Bs', currency: 'VES' },
+  { id: 'efectivo_usd', name: 'Efectivo $', currency: 'USD' },
+  { id: 'binance', name: 'Binance', currency: 'USD' },
+  { id: 'zelle', name: 'Zelle', currency: 'USD' },
+  { id: 'banesco_panama', name: 'Banesco Panamá', currency: 'USD' },
+  { id: 'otro', name: 'Otro', currency: 'USD' },
+];
+
+export function getAllPaymentMethods(customMethods?: CustomPaymentMethod[]): CustomPaymentMethod[] {
+  if (!customMethods || customMethods.length === 0) {
+    return DEFAULT_PAYMENT_METHODS;
+  }
+  const defaultIds = new Set(DEFAULT_PAYMENT_METHODS.map(m => m.id));
+  const filteredCustom = customMethods.filter(m => !defaultIds.has(m.id));
+  return [...DEFAULT_PAYMENT_METHODS, ...filteredCustom];
+}
+
+export function isUsdMethod(method: string, currency?: string, customMethods?: CustomPaymentMethod[]): boolean {
+  if (currency === 'USD') return true;
+  const all = getAllPaymentMethods(customMethods);
+  const found = all.find(m => m.id === method);
+  return found ? found.currency === 'USD' : ['efectivo_usd', 'binance', 'zelle', 'banesco_panama'].includes(method);
+}
 
 /**
  * Helper to normalize USD amount if difference to nearest whole dollar or target is <= 0.10 (1 décima max difference)
@@ -377,22 +404,27 @@ export function formatVES(val: number): string {
 /**
  * Format payment method label in Spanish
  */
-export function getMethodLabel(method: string): string {
+export function getMethodLabel(method: string, customMethods?: CustomPaymentMethod[]): string {
+  const all = getAllPaymentMethods(customMethods);
+  const found = all.find(m => m.id === method);
+  if (found) return found.name;
   switch (method) {
     case 'pago_movil':
       return 'Pago Móvil';
     case 'transferencia_ves':
-      return 'Transferencia';
+      return 'Transferencia Bs';
     case 'efectivo_usd':
       return 'Efectivo $';
     case 'binance':
       return 'Binance';
     case 'efectivo_ves':
       return 'Efectivo Bs';
-
+    case 'zelle':
+      return 'Zelle';
+    case 'banesco_panama':
       return 'Banesco Panamá';
     default:
-      return 'Otro';
+      return method ? method.charAt(0).toUpperCase() + method.slice(1) : 'Otro';
   }
 }
 
@@ -418,6 +450,7 @@ export function distributePaymentAcrossConcepts(params: {
   quotas: SpecialQuota[];
   existingPayments?: PaymentEntry[];
   manualAllocationsOriginal?: Record<string, number>;
+  customMethods?: CustomPaymentMethod[];
 }): ConceptDistributionItem[] {
   const {
     memberId,
@@ -429,13 +462,14 @@ export function distributePaymentAcrossConcepts(params: {
     months,
     quotas,
     existingPayments = [],
+    customMethods,
   } = params;
 
   if (!selectedConcepts || selectedConcepts.length === 0 || amountOriginal <= 0) {
     return [];
   }
 
-  const isDirectUsd = currency === 'USD' || ['efectivo_usd', 'binance', 'zelle', 'banesco_panama'].includes(method);
+  const isDirectUsd = isUsdMethod(method, currency, customMethods);
   
   // We will handle partial manual allocations within the waterfall.
   

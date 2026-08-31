@@ -45,6 +45,8 @@ interface HeaderProps {
   tenantId?: string | null;
   onLogout?: () => void;
   expenseConfig?: ExpenseConfig;
+  rateSource?: 'usd_bcv' | 'eur_bcv' | 'custom';
+  rateLabel?: string;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -66,6 +68,8 @@ export const Header: React.FC<HeaderProps> = ({
   tenantId,
   onLogout,
   expenseConfig = { enabled: false },
+  rateSource = 'usd_bcv',
+  rateLabel,
 }) => {
 
   const [isEditingBcv, setIsEditingBcv] = useState(false);
@@ -102,11 +106,17 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Quick Stats & BCV Rate Bar */}
           <div className="flex flex-wrap items-center gap-3">
-            {/* Tasa BCV Box */}
+            {/* Tasa BCV / Referencia Box */}
             <div className="bg-white/80 border border-slate-200/90 rounded-xl px-3.5 py-1.5 flex items-center space-x-2.5 shadow-sm backdrop-blur-md">
               <div className="flex items-center text-slate-700 space-x-1.5 text-[10px] font-bold uppercase tracking-wider">
                 <TrendingUp className="w-3.5 h-3.5 text-[#b53c00]" />
-                <span>Tasa BCV del Día:</span>
+                <span>
+                  {rateSource === 'eur_bcv'
+                    ? 'Tasa Euro BCV:'
+                    : rateSource === 'custom'
+                    ? 'Tasa Personalizada:'
+                    : 'Tasa BCV del Día:'}
+                </span>
               </div>
               {isEditingBcv ? (
                 <div className="flex items-center space-x-1">
@@ -129,7 +139,11 @@ export const Header: React.FC<HeaderProps> = ({
               ) : (
                 <div className="flex items-center space-x-2">
                   <span className="text-emerald-800 font-mono font-bold text-xs bg-emerald-50/90 px-2.5 py-1 rounded-lg border border-emerald-200/80 shadow-xs">
-                    1 USD = {bcvRate.toFixed(2)} BS
+                    {rateSource === 'eur_bcv'
+                      ? `1 EUR = ${bcvRate.toFixed(2)} BS`
+                      : rateSource === 'custom'
+                      ? `1 REF = ${bcvRate.toFixed(2)} BS`
+                      : `1 USD = ${bcvRate.toFixed(2)} BS`}
                   </span>
                   <button
                     onClick={() => {
@@ -145,7 +159,7 @@ export const Header: React.FC<HeaderProps> = ({
                     onClick={onRefreshBcv}
                     disabled={isRefreshingBcv}
                     className="text-slate-400 hover:text-[#b53c00] p-0.5 rounded transition-colors cursor-pointer"
-                    title="Actualizar Tasa BCV automáticamente desde bcv.org.ve / DolarAPI"
+                    title="Actualizar Tasa automáticamente"
                   >
                     <RefreshCw
                       className={`w-3 h-3 ${isRefreshingBcv ? 'animate-spin text-[#b53c00]' : ''}`}
