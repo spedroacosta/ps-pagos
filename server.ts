@@ -399,8 +399,8 @@ function distributePaymentAcrossConceptsInTelegram(params: {
       }
     } else if (tType === 'late_fee') {
       targetLabel = 'Multas por Atraso';
-      requiredFee_direct = 0;
-      requiredFee_bcv = 0;
+      requiredFee_direct = 2;
+      requiredFee_bcv = 3;
     } else {
       const q = quotas.find((q) => q.id === id);
       targetLabel = q ? q.title : id;

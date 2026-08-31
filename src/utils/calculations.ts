@@ -138,12 +138,6 @@ export function calculateMemberSolvency(
     );
     const rawPaidUSD = quotaPayments.reduce((sum, p) => sum + normalizeUsdAmount(p.amountUSD), 0);
 
-    const hasDirectUsdPayment = quotaPayments.some((p) =>
-      ['efectivo_usd', 'binance', 'zelle', 'banesco_panama'].includes(p.method) ||
-      p.currency === 'USD' ||
-      (p.notes && p.notes.toLowerCase().includes('masiva'))
-    );
-
     const feeUSD_direct = quota.feeUSD_direct || quota.feeUSD || 0;
     const feeUSD_bcv = quota.feeUSD_bcv || quota.feeUSD_direct || quota.feeUSD || 0;
 
@@ -153,30 +147,16 @@ export function calculateMemberSolvency(
 
     if (feeUSD_direct === 0 && feeUSD_bcv === 0) {
       status = 'na';
-    } else if (hasDirectUsdPayment) {
-      if (rawPaidUSD >= feeUSD_direct - 0.80) {
-        status = 'solvente';
-        paidUSD_display = feeUSD_direct;
-        owedUSD = 0;
-      } else if (rawPaidUSD > 0) {
-        status = 'parcial';
-        paidUSD_display = Math.round(rawPaidUSD * 100) / 100;
-        owedUSD = Math.max(0, feeUSD_direct - paidUSD_display);
-      } else {
-        status = 'deuda';
-        paidUSD_display = 0;
-        owedUSD = feeUSD_direct;
-      }
     } else {
-      const targetBcv = feeUSD_bcv || feeUSD_direct;
-      if (rawPaidUSD >= targetBcv - 0.80) {
+      // rawPaidUSD contains direct USD equivalent calculated during payment breakdown
+      const isSolvent = rawPaidUSD >= feeUSD_direct - 0.80 || (feeUSD_bcv > 0 && rawPaidUSD >= feeUSD_bcv - 0.80);
+      if (isSolvent) {
         status = 'solvente';
         paidUSD_display = feeUSD_direct;
         owedUSD = 0;
       } else if (rawPaidUSD > 0) {
         status = 'parcial';
-        const ratio = targetBcv > 0 ? Math.min(1, rawPaidUSD / targetBcv) : 1;
-        paidUSD_display = Math.round(ratio * feeUSD_direct * 100) / 100;
+        paidUSD_display = Math.min(feeUSD_direct, Math.round(rawPaidUSD * 100) / 100);
         owedUSD = Math.max(0, feeUSD_direct - paidUSD_display);
       } else {
         status = 'deuda';
