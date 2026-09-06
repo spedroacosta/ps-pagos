@@ -18,7 +18,7 @@ import {
   X,
   Key,
 } from 'lucide-react';
-import { Member, MonthConfig, SpecialQuota, PaymentEntry, MemberSolvencySummary, LateFeeConfig } from '../types';
+import { Member, MonthConfig, SpecialQuota, PaymentEntry, MemberSolvencySummary, LateFeeConfig, IndividualFine } from '../types';
 import { calculateMemberSolvency, formatUSD, formatVES, getMethodLabel } from '../utils/calculations';
 import { ConversionCalculator } from './ConversionCalculator';
 import { getTenantHeaders } from '../utils/api';
@@ -32,6 +32,7 @@ interface BuscadorIntegranteProps {
   onOpenPaymentModalForMember: (memberId: string) => void;
   onOpenInvoiceModal: (summary: MemberSolvencySummary) => void;
   lateFeeConfig?: LateFeeConfig | null;
+  individualFines?: IndividualFine[];
   onUpdateMember?: (member: Member) => void;
   tenantId?: string;
   bcvRate?: number;
@@ -46,6 +47,7 @@ export const BuscadorIntegrante: React.FC<BuscadorIntegranteProps> = ({
   onOpenPaymentModalForMember,
   onOpenInvoiceModal,
   lateFeeConfig,
+  individualFines = [],
   onUpdateMember,
   tenantId,
   bcvRate = 61.5,
@@ -72,7 +74,7 @@ export const BuscadorIntegrante: React.FC<BuscadorIntegranteProps> = ({
   const activeMember = members.find((m) => m.id === activeMemberId) || members[0];
 
   const solvencySummary = activeMember
-    ? calculateMemberSolvency(activeMember, months, quotas, payments, lateFeeConfig || undefined)
+    ? calculateMemberSolvency(activeMember, months, quotas, payments, lateFeeConfig || undefined, individualFines)
     : null;
 
   const memberPayments = activeMember

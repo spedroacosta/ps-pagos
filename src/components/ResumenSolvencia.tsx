@@ -21,7 +21,7 @@ import {
   Square,
   TrendingDown,
 } from 'lucide-react';
-import { Member, MonthConfig, SpecialQuota, PaymentEntry, MemberSolvencySummary, LateFeeConfig, ExpenseEntry, ExpenseConfig } from '../types';
+import { Member, MonthConfig, SpecialQuota, PaymentEntry, MemberSolvencySummary, LateFeeConfig, ExpenseEntry, ExpenseConfig, IndividualFine } from '../types';
 import { calculateMemberSolvency, formatUSD, formatVES } from '../utils/calculations';
 
 interface ResumenSolvenciaProps {
@@ -33,6 +33,7 @@ interface ResumenSolvenciaProps {
   onOpenInvoiceModal: (summary: MemberSolvencySummary) => void;
   onSelectMemberForSearch: (memberId: string) => void;
   lateFeeConfig?: LateFeeConfig | null;
+  individualFines?: IndividualFine[];
   expenses?: ExpenseEntry[];
   expenseConfig?: ExpenseConfig;
   totalCollectedUSD?: number;
@@ -50,6 +51,7 @@ export const ResumenSolvencia: React.FC<ResumenSolvenciaProps> = ({
   onOpenInvoiceModal,
   onSelectMemberForSearch,
   lateFeeConfig,
+  individualFines = [],
   expenses = [],
   expenseConfig = { enabled: false },
   totalCollectedUSD = 0,
@@ -138,8 +140,8 @@ export const ResumenSolvencia: React.FC<ResumenSolvenciaProps> = ({
 
   // Compute solvency summaries for all members with visible months calculation
   const memberSummaries = useMemo(() => {
-    return members.map((member) => calculateMemberSolvency(member, months, quotas, payments, lateFeeConfig || undefined));
-  }, [members, months, quotas, payments, lateFeeConfig]);
+    return members.map((member) => calculateMemberSolvency(member, months, quotas, payments, lateFeeConfig || undefined, individualFines));
+  }, [members, months, quotas, payments, lateFeeConfig, individualFines]);
 
   // Compute reactive debt & solvency based ONLY on visibleMonths and visibleQuotas
   const memberSummariesWithVisibleDebt = useMemo(() => {

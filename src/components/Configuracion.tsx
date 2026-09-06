@@ -35,7 +35,7 @@ import {
   ToggleRight,
   CreditCard,
 } from 'lucide-react';
-import { MonthConfig, SpecialQuota, Member, PaymentEntry, DollarPurchase, LateFeeConfig, ExpenseConfig, CustomPaymentMethod } from '../types';
+import { MonthConfig, SpecialQuota, Member, PaymentEntry, DollarPurchase, LateFeeConfig, ExpenseConfig, CustomPaymentMethod, IndividualFine } from '../types';
 import { getTenantHeaders } from '../utils/api';
 import { ConversionCalculator } from './ConversionCalculator';
 import { getAllPaymentMethods, DEFAULT_PAYMENT_METHODS } from '../utils/calculations';
@@ -78,6 +78,9 @@ interface ConfiguracionProps {
   rateSource?: 'usd_bcv' | 'eur_bcv' | 'custom';
   customRateValue?: number;
   onUpdateTenantConfig?: (newConfig: { customPaymentMethods?: CustomPaymentMethod[]; rateSource?: 'usd_bcv' | 'eur_bcv' | 'custom'; customRateValue?: number }) => void;
+  individualFines?: IndividualFine[];
+  onAddIndividualFine?: (fine: Omit<IndividualFine, 'id'>) => void;
+  onDeleteIndividualFine?: (fineId: string) => void;
 }
 
 export const Configuracion: React.FC<ConfiguracionProps> = ({
@@ -112,6 +115,9 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
   rateSource = 'usd_bcv',
   customRateValue = 0,
   onUpdateTenantConfig,
+  individualFines = [],
+  onAddIndividualFine,
+  onDeleteIndividualFine,
 }) => {
 
   // Navigation Sub-Tabs
@@ -147,6 +153,55 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
   useEffect(() => {
     if (customRateValue > 0) setCustomRateInput(String(customRateValue));
   }, [customRateValue]);
+
+  // --- Individual Fine State & Handlers ---
+  const [selectedIndMemberId, setSelectedIndMemberId] = useState('');
+  const [indFineReason, setIndFineReason] = useState('');
+  const [indFineAmountUSD, setIndFineAmountUSD] = useState('');
+  const [indFineDate, setIndFineDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [indFineNotes, setIndFineNotes] = useState('');
+  const [indFineSearch, setIndFineSearch] = useState('');
+
+  const handleCreateIndividualFine = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedIndMemberId) {
+      alert('Por favor selecciona un integrante.');
+      return;
+    }
+    if (!indFineReason.trim()) {
+      alert('Por favor especifica el motivo o infracción de la multa.');
+      return;
+    }
+    const amount = parseFloat(indFineAmountUSD);
+    if (isNaN(amount) || amount <= 0) {
+      alert('Por favor ingresa un monto válido mayor a 0 en $ USD.');
+      return;
+    }
+
+    const member = members.find((m) => m.id === selectedIndMemberId);
+    if (!member) return;
+
+    onAddIndividualFine?.({
+      memberId: member.id,
+      memberName: `${member.lastName} ${member.firstName}`,
+      reason: indFineReason.trim(),
+      amountUSD: amount,
+      date: indFineDate || new Date().toISOString().split('T')[0],
+      notes: indFineNotes.trim() || undefined,
+    });
+
+    setSelectedIndMemberId('');
+    setIndFineReason('');
+    setIndFineAmountUSD('');
+    setIndFineNotes('');
+    alert('✅ Multa individual aplicada exitosamente.');
+  };
+
+  const filteredIndividualFines = individualFines.filter((f) => {
+    if (!indFineSearch.trim()) return true;
+    const q = indFineSearch.toLowerCase();
+    return f.memberName.toLowerCase().includes(q) || f.reason.toLowerCase().includes(q);
+  });
 
   // Load tenant configuration on startup
   useEffect(() => {
@@ -2253,6 +2308,199 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
                   </button>
                 </div>
               </form>
+            </div>
+
+            {/* --- SECCIÓN: MULTAS INDIVIDUALES / SANCIONES ESPECIALES --- */}
+            <div className="bg-white border border-rose-200 rounded-2xl shadow-xs p-5 space-y-5">
+              <div className="flex items-center justify-between border-b border-rose-100 pb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <span className="p-1.5 bg-rose-100 text-rose-700 rounded-lg">⚡</span>
+                    Multas Individuales y Sanciones Especiales
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    Aplica una multa 100% personalizada a un participante en específico según la situación o infracción cometida.
+                  </p>
+                </div>
+              </div>
+
+              {/* Formulario de registro de multa individual */}
+              <form onSubmit={handleCreateIndividualFine} className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-4">
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <span>➕ Asignar Nueva Multa Individual</span>
+                </h4>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {/* Seleccionar integrante */}
+                  <div className="md:col-span-1">
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                      Integrante / Participante <span className="text-rose-600">*</span>
+                    </label>
+                    <select
+                      value={selectedIndMemberId}
+                      onChange={(e) => setSelectedIndMemberId(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 font-bold focus:outline-none focus:ring-2 focus:ring-rose-500 h-[38px]"
+                      required
+                    >
+                      <option value="">-- Seleccionar Integrante --</option>
+                      {members
+                        .slice()
+                        .sort((a, b) => a.lastName.localeCompare(b.lastName))
+                        .map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.lastName} {m.firstName} ({m.cedula})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  {/* Motivo de la multa */}
+                  <div className="md:col-span-1">
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                      Motivo / Infracción <span className="text-rose-600">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Motivo o concepto de la multa..."
+                      value={indFineReason}
+                      onChange={(e) => setIndFineReason(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 font-bold focus:outline-none focus:ring-2 focus:ring-rose-500 h-[38px]"
+                      required
+                    />
+                  </div>
+
+                  {/* Monto $ USD */}
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                      Monto de la Multa ($ USD) <span className="text-rose-600">*</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2.5 text-xs text-slate-400 font-bold">$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        placeholder="0.00"
+                        value={indFineAmountUSD}
+                        onChange={(e) => setIndFineAmountUSD(e.target.value)}
+                        className="w-full bg-white border border-slate-300 rounded-lg pl-7 pr-3 py-2 text-xs text-rose-800 font-bold focus:outline-none focus:ring-2 focus:ring-rose-500 h-[38px]"
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                  {/* Fecha */}
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                      Fecha de la Multa
+                    </label>
+                    <input
+                      type="date"
+                      value={indFineDate}
+                      onChange={(e) => setIndFineDate(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-rose-500 h-[38px]"
+                      required
+                    />
+                  </div>
+
+                  {/* Observaciones */}
+                  <div className="md:col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                      Observaciones / Notas (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Observaciones adicionales..."
+                      value={indFineNotes}
+                      onChange={(e) => setIndFineNotes(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-rose-500 h-[38px]"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer flex items-center space-x-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Aplicar Multa Individual</span>
+                  </button>
+                </div>
+              </form>
+
+              {/* Tabla / Lista de Multas Individuales */}
+              <div className="space-y-3 pt-2 border-t border-slate-200">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <h4 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>📜 Histórico de Multas Individuales</span>
+                    <span className="bg-rose-100 text-rose-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      {individualFines.length}
+                    </span>
+                  </h4>
+
+                  {individualFines.length > 0 && (
+                    <input
+                      type="text"
+                      placeholder="Buscar integrante o motivo..."
+                      value={indFineSearch}
+                      onChange={(e) => setIndFineSearch(e.target.value)}
+                      className="bg-white border border-slate-200 rounded-lg px-3 py-1 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-rose-500 w-full sm:w-64"
+                    />
+                  )}
+                </div>
+
+                {filteredIndividualFines.length === 0 ? (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 text-center text-slate-400 text-xs font-medium">
+                    No hay multas individuales registradas {indFineSearch ? 'que coincidan con la búsqueda.' : '.'}
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table className="min-w-full divide-y divide-slate-200">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-[10px] font-extrabold text-slate-500 uppercase">Fecha</th>
+                          <th className="px-3 py-2 text-left text-[10px] font-extrabold text-slate-500 uppercase">Integrante</th>
+                          <th className="px-3 py-2 text-left text-[10px] font-extrabold text-slate-500 uppercase">Motivo / Infracción</th>
+                          <th className="px-3 py-2 text-right text-[10px] font-extrabold text-slate-500 uppercase">Monto USD</th>
+                          <th className="px-3 py-2 text-center text-[10px] font-extrabold text-slate-500 uppercase">Acción</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-slate-100 text-xs">
+                        {filteredIndividualFines.map((fine) => (
+                          <tr key={fine.id} className="hover:bg-rose-50/40 transition-colors">
+                            <td className="px-3 py-2.5 font-semibold text-slate-600 whitespace-nowrap">{fine.date}</td>
+                            <td className="px-3 py-2.5 font-bold text-slate-900">{fine.memberName}</td>
+                            <td className="px-3 py-2.5 text-slate-700">
+                              <span className="font-semibold">{fine.reason}</span>
+                              {fine.notes && <span className="block text-[10px] text-slate-400">{fine.notes}</span>}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-extrabold text-rose-700 whitespace-nowrap">
+                              ${fine.amountUSD.toFixed(2)}
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (confirm(`¿Estás seguro de eliminar la multa de $${fine.amountUSD} a ${fine.memberName}?`)) {
+                                    onDeleteIndividualFine?.(fine.id);
+                                  }
+                                }}
+                                className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                                title="Anular multa"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
         </div>
       )}

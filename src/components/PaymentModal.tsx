@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, DollarSign, Calculator, Calendar, Tag, CreditCard, Hash, FileText, CheckCircle2, CheckSquare, Square } from 'lucide-react';
-import { Member, MonthConfig, SpecialQuota, PaymentMethod, PaymentEntry, CustomPaymentMethod } from '../types';
+import { Member, MonthConfig, SpecialQuota, PaymentMethod, PaymentEntry, CustomPaymentMethod, IndividualFine } from '../types';
 import { formatUSD, formatVES, distributePaymentAcrossConcepts, getCaracasDateString, getAllPaymentMethods, isUsdMethod } from '../utils/calculations';
 
 interface PaymentModalProps {
@@ -19,6 +19,7 @@ interface PaymentModalProps {
   initialTargetType?: 'month' | 'quota' | 'late_fee';
   initialTargetId?: string;
   customPaymentMethods?: CustomPaymentMethod[];
+  individualFines?: IndividualFine[];
 }
 
 export const PaymentModal: React.FC<PaymentModalProps> = ({
@@ -37,6 +38,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   initialTargetType = 'month',
   initialTargetId = '',
   customPaymentMethods = [],
+  individualFines = [],
 }) => {
   const [memberId, setMemberId] = useState(initialMemberId);
   const [method, setMethod] = useState<PaymentMethod>('pago_movil');
@@ -351,7 +353,41 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   </>
                 )}
 
-                <span className="text-[9px] uppercase font-extrabold text-rose-700 block tracking-wider mt-2">Cargos por Atraso</span>
+                {/* Multas Individuales del Integrante */}
+                {(() => {
+                  const memberIndFines = individualFines.filter((f) => f.memberId === memberId);
+                  if (memberIndFines.length === 0) return null;
+                  return (
+                    <>
+                      <span className="text-[9px] uppercase font-extrabold text-rose-700 block tracking-wider mt-2">
+                        ⚡ Multas Individuales / Infracciones
+                      </span>
+                      {memberIndFines.map((f) => {
+                        const key = `late_fee:${f.id}`;
+                        const isChecked = selectedConcepts.includes(key);
+                        return (
+                          <div key={key} className={`flex flex-col p-2 rounded-lg text-xs border transition-all ${isChecked ? 'bg-rose-50 border-rose-300 font-bold text-rose-950' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'}`}>
+                            <div className="flex items-center justify-between cursor-pointer" onClick={() => toggleConcept(key)}>
+                              <div className="flex items-center space-x-2">
+                                {isChecked ? <CheckSquare className="w-4 h-4 text-rose-600" /> : <Square className="w-4 h-4 text-slate-400" />}
+                                <span>Multa: {f.reason}</span>
+                              </div>
+                              <span className="text-[10px] text-rose-700 font-bold">${f.amountUSD.toFixed(2)} USD</span>
+                            </div>
+                            {isChecked && (
+                              <div className="mt-2 pl-6 flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
+                                <label className="text-[10px] font-semibold text-slate-500">Abonar {currency === 'VES' ? '(Bs.)' : '($)'}:</label>
+                                <input type="number" step="0.01" className="w-24 bg-white border border-rose-200 rounded px-2 py-1 text-xs text-rose-900 font-bold focus:outline-none" placeholder="Opcional" value={conceptAmounts[key] || ''} onChange={(e) => setConceptAmounts({...conceptAmounts, [key]: e.target.value})} />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </>
+                  );
+                })()}
+
+                <span className="text-[9px] uppercase font-extrabold text-rose-700 block tracking-wider mt-2">Cargos por Atraso (Globales)</span>
                 {months.map((m) => {
                   const key = `late_fee:${m.id}`;
                   const isChecked = selectedConcepts.includes(key);
@@ -362,7 +398,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                           {isChecked ? <CheckSquare className="w-4 h-4 text-rose-600" /> : <Square className="w-4 h-4 text-slate-400" />}
                           <span>Multa de {m.name} {m.year}</span>
                         </div>
-                        <span className="text-[10px] text-slate-500 font-normal">Fijado de forma individual</span>
+                        <span className="text-[10px] text-slate-500 font-normal">Por mora mensual</span>
                       </div>
                       {isChecked && (
                         <div className="mt-2 pl-6 flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>

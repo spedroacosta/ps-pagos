@@ -37,6 +37,16 @@ export interface SpecialQuota {
   description?: string;
 }
 
+export interface IndividualFine {
+  id: string;
+  memberId: string;
+  memberName: string;
+  reason: string;
+  amountUSD: number;
+  date: string; // YYYY-MM-DD
+  notes?: string;
+}
+
 export interface LateFeeConfig {
   feeUSD_direct: number;
   feeUSD_bcv: number;
@@ -136,6 +146,12 @@ export interface MemberSolvencySummary {
     paidLateFeesUSD: number;
     owedLateFeesUSD: number;
     lateFeeMonths: string[];
+    individualFinesDetails?: {
+      fine: IndividualFine;
+      paidUSD: number;
+      owedUSD: number;
+      isPaid: boolean;
+    }[];
   };
 }
 

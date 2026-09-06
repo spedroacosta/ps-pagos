@@ -1,4 +1,4 @@
-import { Member, MonthConfig, SpecialQuota, PaymentEntry, MemberSolvencySummary, LateFeeConfig, CustomPaymentMethod } from '../types';
+import { Member, MonthConfig, SpecialQuota, PaymentEntry, MemberSolvencySummary, LateFeeConfig, CustomPaymentMethod, IndividualFine } from '../types';
 
 export const DEFAULT_PAYMENT_METHODS: CustomPaymentMethod[] = [
   { id: 'pago_movil', name: 'Pago Móvil', currency: 'VES' },
@@ -42,7 +42,8 @@ export function calculateMemberSolvency(
   months: MonthConfig[],
   quotas: SpecialQuota[],
   payments: PaymentEntry[],
-  lateFeeConfig?: LateFeeConfig
+  lateFeeConfig?: LateFeeConfig | null,
+  individualFines: IndividualFine[] = []
 ): MemberSolvencySummary {
   const rawMemberPayments = payments.filter((p) => p.memberId === member.id);
   const memberPayments: PaymentEntry[] = [];
@@ -357,6 +358,53 @@ export function calculateMemberSolvency(
 
     totalOwedUSD += owedLateFeesUSD;
     totalPaidUSD += paidLateFeesUSD;
+  }
+
+  // Process individual custom fines
+  const memberIndividualFines = (individualFines || []).filter((f) => f.memberId === member.id);
+  if (memberIndividualFines.length > 0) {
+    const indFinesDetails: { fine: IndividualFine; paidUSD: number; owedUSD: number; isPaid: boolean }[] = [];
+
+    memberIndividualFines.forEach((fine) => {
+      const finePayments = memberPayments.filter(
+        (p) => (p.targetType === 'late_fee' || p.targetType === 'quota') && p.targetId === fine.id
+      );
+      const paidUSD = finePayments.reduce((sum, p) => sum + normalizeUsdAmount(p.amountUSD), 0);
+      const isPaid = paidUSD >= fine.amountUSD - 0.80;
+      const owedUSD = isPaid ? 0 : Math.max(0, fine.amountUSD - paidUSD);
+
+      indFinesDetails.push({ fine, paidUSD, owedUSD, isPaid });
+
+      totalOwedUSD += owedUSD;
+      totalPaidUSD += paidUSD;
+    });
+
+    if (!lateFeesSummary) {
+      const totalDirect = memberIndividualFines.reduce((sum, f) => sum + f.amountUSD, 0);
+      const totalPaid = indFinesDetails.reduce((sum, d) => sum + d.paidUSD, 0);
+      const totalOwed = indFinesDetails.reduce((sum, d) => sum + d.owedUSD, 0);
+
+      lateFeesSummary = {
+        lateFeesCount: indFinesDetails.filter((d) => !d.isPaid).length,
+        totalLateFeesUSD_direct: totalDirect,
+        totalLateFeesUSD_bcv: totalDirect,
+        paidLateFeesUSD: totalPaid,
+        owedLateFeesUSD: totalOwed,
+        lateFeeMonths: [],
+        individualFinesDetails: indFinesDetails,
+      };
+    } else {
+      lateFeesSummary.individualFinesDetails = indFinesDetails;
+      const addDirect = memberIndividualFines.reduce((sum, f) => sum + f.amountUSD, 0);
+      const addPaid = indFinesDetails.reduce((sum, d) => sum + d.paidUSD, 0);
+      const addOwed = indFinesDetails.reduce((sum, d) => sum + d.owedUSD, 0);
+
+      lateFeesSummary.totalLateFeesUSD_direct += addDirect;
+      lateFeesSummary.totalLateFeesUSD_bcv += addDirect;
+      lateFeesSummary.paidLateFeesUSD += addPaid;
+      lateFeesSummary.owedLateFeesUSD += addOwed;
+      lateFeesSummary.lateFeesCount += indFinesDetails.filter((d) => !d.isPaid).length;
+    }
   }
 
   const isUpToDate = totalOwedUSD <= 0.01;

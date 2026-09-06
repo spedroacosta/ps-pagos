@@ -946,7 +946,8 @@ async function loadServerData(tenantId: string): Promise<any> {
     dollarPurchases: [],
     expenses: [],
     expenseCategories: ['Logística', 'Eventos', 'Administrativo', 'Protocolo', 'Imprevistos'],
-    expenseConfig: { enabled: false }
+    expenseConfig: { enabled: false },
+    individualFines: []
   };
 
   if (!tenantId) return defaultData;
@@ -958,7 +959,7 @@ async function loadServerData(tenantId: string): Promise<any> {
   if (db) {
     try {
       const result: any = {};
-      const docs = ['members', 'months', 'quotas', 'payments', 'dollarPurchases', 'expenses', 'expenseCategories', 'expenseConfig'];
+      const docs = ['members', 'months', 'quotas', 'payments', 'dollarPurchases', 'expenses', 'expenseCategories', 'expenseConfig', 'individualFines'];
       let hasAnyFirestoreData = false;
 
       const docSnaps = await withTimeout(
@@ -1091,7 +1092,8 @@ async function saveServerData(tenantId: string, newData: any): Promise<boolean> 
     dollarPurchases: Array.isArray(newData.dollarPurchases) ? newData.dollarPurchases : (localData.dollarPurchases || []),
     expenses: Array.isArray(newData.expenses) ? newData.expenses : (localData.expenses || []),
     expenseCategories: Array.isArray(newData.expenseCategories) && newData.expenseCategories.length > 0 ? newData.expenseCategories : ['Logística', 'Eventos', 'Administrativo', 'Protocolo', 'Imprevistos'],
-    expenseConfig: newData.expenseConfig && typeof newData.expenseConfig === 'object' ? newData.expenseConfig : { enabled: false }
+    expenseConfig: newData.expenseConfig && typeof newData.expenseConfig === 'object' ? newData.expenseConfig : { enabled: false },
+    individualFines: Array.isArray(newData.individualFines) ? newData.individualFines : (localData.individualFines || [])
   };
 
   // Save to local file synchronously
@@ -2400,6 +2402,7 @@ app.get('/api/public/tenant/:tenantId/query', async (req, res) => {
       quotas: data.quotas || [],
       payments: memberPayments,
       lateFee: (await loadTenantConfig(cleanId)).lateFee || { feeUSD_direct: 2, feeUSD_bcv: 3, paused: false },
+      individualFines: data.individualFines || [],
     });
   } catch (err: any) {
     console.error('Error in public tenant query:', err);

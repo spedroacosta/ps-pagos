@@ -14,7 +14,7 @@ import { SuperAdminPanel } from './components/SuperAdminPanel';
 import { PublicQueryPortal } from './components/PublicQueryPortal';
 import { getTenantHeaders, clearTenantCredentials } from './utils/api';
 
-import { Member, MonthConfig, SpecialQuota, PaymentEntry, DollarPurchase, MemberSolvencySummary, LateFeeConfig, ExpenseEntry, ExpenseConfig, CustomPaymentMethod } from './types';
+import { Member, MonthConfig, SpecialQuota, PaymentEntry, DollarPurchase, MemberSolvencySummary, LateFeeConfig, ExpenseEntry, ExpenseConfig, CustomPaymentMethod, IndividualFine } from './types';
 import {
   INITIAL_MEMBERS,
   INITIAL_MONTHS,
@@ -234,7 +234,7 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
   };
 
 
-  const [members, setMembers] = useState<Member[]>([]);  const [months, setMonths] = useState<MonthConfig[]>(INITIAL_MONTHS);  const [quotas, setQuotas] = useState<SpecialQuota[]>([]);  const [payments, setPayments] = useState<PaymentEntry[]>([]);  const [dollarPurchases, setDollarPurchases] = useState<DollarPurchase[]>([]);  const [lateFeeConfig, setLateFeeConfig] = useState<LateFeeConfig | null>(null);  const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);  const [expenseCategories, setExpenseCategories] = useState<string[]>(['Logística', 'Eventos', 'Administrativo', 'Protocolo', 'Imprevistos']);  const [expenseConfig, setExpenseConfig] = useState<ExpenseConfig>({ enabled: false });
+  const [members, setMembers] = useState<Member[]>([]);  const [months, setMonths] = useState<MonthConfig[]>(INITIAL_MONTHS);  const [quotas, setQuotas] = useState<SpecialQuota[]>([]);  const [payments, setPayments] = useState<PaymentEntry[]>([]);  const [dollarPurchases, setDollarPurchases] = useState<DollarPurchase[]>([]);  const [lateFeeConfig, setLateFeeConfig] = useState<LateFeeConfig | null>(null);  const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);  const [expenseCategories, setExpenseCategories] = useState<string[]>(['Logística', 'Eventos', 'Administrativo', 'Protocolo', 'Imprevistos']);  const [expenseConfig, setExpenseConfig] = useState<ExpenseConfig>({ enabled: false });  const [individualFines, setIndividualFines] = useState<IndividualFine[]>([]);
 
   const [isInitialized, setIsInitialized] = useState<boolean>(false);
 
@@ -382,6 +382,9 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
               ? json.data.expenseConfig
               : { enabled: false };
             setExpenseConfig(cfg);
+
+            const indFines = Array.isArray(json.data.individualFines) ? json.data.individualFines : [];
+            setIndividualFines(indFines);
             
           }
         }
@@ -437,8 +440,21 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
     
     
     
-    syncToServer({ members, months, quotas, payments, dollarPurchases, expenses, expenseCategories, expenseConfig });
-  }, [members, months, quotas, payments, dollarPurchases, expenses, expenseCategories, expenseConfig, isInitialized]);
+    syncToServer({ members, months, quotas, payments, dollarPurchases, expenses, expenseCategories, expenseConfig, individualFines });
+  }, [members, months, quotas, payments, dollarPurchases, expenses, expenseCategories, expenseConfig, individualFines, isInitialized]);
+
+  // Individual Fine Handlers
+  const handleAddIndividualFine = (fineData: Omit<IndividualFine, 'id'>) => {
+    const newFine: IndividualFine = {
+      ...fineData,
+      id: `fine-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    };
+    setIndividualFines((prev) => [newFine, ...prev]);
+  };
+
+  const handleDeleteIndividualFine = (id: string) => {
+    setIndividualFines((prev) => prev.filter((f) => f.id !== id));
+  };
 
   // Expense Handlers
   const handleAddExpense = (expenseData: Omit<ExpenseEntry, 'id'>) => {
@@ -793,6 +809,7 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
             onOpenInvoiceModal={handleOpenInvoiceModal}
             onSelectMemberForSearch={handleSelectMemberForSearch}
             lateFeeConfig={lateFeeConfig}
+            individualFines={individualFines}
             expenses={expenses}
             expenseConfig={expenseConfig}
             totalCollectedUSD={totalCollectedUSD}
@@ -812,6 +829,7 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
             onOpenPaymentModalForMember={handleOpenPaymentModalForMember}
             onOpenInvoiceModal={handleOpenInvoiceModal}
             lateFeeConfig={lateFeeConfig}
+            individualFines={individualFines}
             onUpdateMember={handleUpdateMember}
             tenantId={tenantId}
             bcvRate={bcvRate}
@@ -886,6 +904,9 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
             customPaymentMethods={customPaymentMethods}
             rateSource={rateSource}
             customRateValue={customRateValue}
+            individualFines={individualFines}
+            onAddIndividualFine={handleAddIndividualFine}
+            onDeleteIndividualFine={handleDeleteIndividualFine}
             onUpdateTenantConfig={(newCfg) => {
               if (newCfg.customPaymentMethods) setCustomPaymentMethods(newCfg.customPaymentMethods);
               if (newCfg.rateSource) setRateSource(newCfg.rateSource);
@@ -907,6 +928,7 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
         months={months}
         quotas={quotas}
         payments={payments}
+        individualFines={individualFines}
         currentBcvRate={bcvRate}
         customPaymentMethods={customPaymentMethods}
         onSavePayment={handleSavePayment}
