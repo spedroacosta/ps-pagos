@@ -20,8 +20,8 @@ import {
   TrendingUp,
   Zap,
 } from 'lucide-react';
-import { Member, MonthConfig, SpecialQuota, ParsedWhatsAppItem, PaymentEntry, PaymentMethod, DollarPurchase } from '../types';
-import { formatUSD, formatVES, getMethodLabel, distributePaymentAcrossConcepts, getCaracasDateString } from '../utils/calculations';
+import { Member, MonthConfig, SpecialQuota, ParsedWhatsAppItem, PaymentEntry, PaymentMethod, DollarPurchase, CustomPaymentMethod } from '../types';
+import { formatUSD, formatVES, getMethodLabel, getAllPaymentMethods, distributePaymentAcrossConcepts, getCaracasDateString } from '../utils/calculations';
 import { getTenantHeaders } from '../utils/api';
 
 interface RegistroPagosProps {
@@ -31,6 +31,7 @@ interface RegistroPagosProps {
   payments: PaymentEntry[];
   dollarPurchases: DollarPurchase[];
   currentBcvRate: number;
+  customPaymentMethods?: CustomPaymentMethod[];
   onBatchAddPayments: (payments: Omit<PaymentEntry, 'id' | 'dateEntered'>[]) => void;
   onAddDollarPurchase: (purchase: Omit<DollarPurchase, 'id'>) => void;
 }
@@ -103,6 +104,7 @@ export const RegistroPagos: React.FC<RegistroPagosProps> = ({
   payments,
   dollarPurchases,
   currentBcvRate,
+  customPaymentMethods,
   onBatchAddPayments,
   onAddDollarPurchase,
 }) => {
@@ -1038,11 +1040,11 @@ También informamos que hoy compramos $100 en divisas con bolívares de la cuent
                     onChange={(e) => handleManualMethodChange(e.target.value as PaymentMethod)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-950 focus:outline-none"
                   >
-                    <option value="pago_movil">Pago Móvil (VES)</option>
-                    <option value="transferencia_ves">Transferencia (VES)</option>
-                    <option value="efectivo_usd">Efectivo ($ USD)</option>
-                    <option value="binance">Binance Pay ($ USD)</option>
-                    <option value="efectivo_ves">Efectivo Bs. (VES)</option>
+                    {getAllPaymentMethods(customPaymentMethods).map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name} ({m.currency})
+                      </option>
+                    ))}
                   </select>
                 </div>
 

@@ -16,7 +16,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { Member, MonthConfig, SpecialQuota, ParsedWhatsAppItem, PaymentEntry, PaymentMethod } from '../types';
-import { formatUSD, formatVES, getMethodLabel, distributePaymentAcrossConcepts, getCaracasDateString } from '../utils/calculations';
+import { formatUSD, formatVES, getMethodLabel, getAllPaymentMethods, distributePaymentAcrossConcepts, getCaracasDateString } from '../utils/calculations';
 import { getTenantHeaders } from '../utils/api';
 
 interface WhatsAppParserProps {
@@ -577,10 +577,11 @@ export const WhatsAppParser: React.FC<WhatsAppParserProps> = ({
                         onChange={(e) => updateItemField(item.id, 'method', e.target.value)}
                         className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1 text-xs text-slate-900 font-medium cursor-pointer"
                       >
-                        <option value="pago_movil">Pago móvil</option>
-                        <option value="transferencia_ves">Transferencia</option>
-                        <option value="efectivo_usd">Efectivo $</option>
-                        <option value="binance">Binance</option>
+                        {getAllPaymentMethods().map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name} ({m.currency})
+                          </option>
+                        ))}
                       </select>
                     </div>
 

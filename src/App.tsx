@@ -848,6 +848,7 @@ function AdminDashboardContainer({ tenantId, initialTab }: AdminDashboardContain
             payments={payments}
             dollarPurchases={dollarPurchases}
             currentBcvRate={bcvRate}
+            customPaymentMethods={customPaymentMethods}
             onBatchAddPayments={handleBatchAddPayments}
             onAddDollarPurchase={handleAddDollarPurchase}
           />

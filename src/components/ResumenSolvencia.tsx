@@ -206,8 +206,14 @@ export const ResumenSolvencia: React.FC<ResumenSolvenciaProps> = ({
     return expenses.filter((e) => e.currency === 'USD').reduce((sum, e) => sum + e.amount, 0);
   }, [expenses]);
 
+  const totalDirectCollectedUSD = useMemo(() => {
+    return payments
+      .filter((p) => p.currency === 'USD' && !(p.id.startsWith('init-p-') || p.reference === 'INICIAL' || (p.notes && p.notes.toLowerCase().includes('masiva'))))
+      .reduce((sum, p) => sum + (p.amountOriginal || p.amountUSD), 0);
+  }, [payments]);
+
   const netVESInVault = totalCollectedVES - totalDollarPurchasesVES - totalExpensesVES;
-  const netUSDInVault = totalCollectedUSD + totalDollarPurchasesUSD - totalExpensesUSD;
+  const netUSDInVault = totalDirectCollectedUSD + totalDollarPurchasesUSD - totalExpensesUSD;
 
   // Export PDF
   const handleExportPDF = () => {

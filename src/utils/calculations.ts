@@ -2,13 +2,8 @@ import { Member, MonthConfig, SpecialQuota, PaymentEntry, MemberSolvencySummary,
 
 export const DEFAULT_PAYMENT_METHODS: CustomPaymentMethod[] = [
   { id: 'pago_movil', name: 'Pago Móvil', currency: 'VES' },
-  { id: 'transferencia_ves', name: 'Transferencia Bs', currency: 'VES' },
-  { id: 'efectivo_ves', name: 'Efectivo Bs', currency: 'VES' },
-  { id: 'efectivo_usd', name: 'Efectivo $', currency: 'USD' },
   { id: 'binance', name: 'Binance', currency: 'USD' },
-  { id: 'zelle', name: 'Zelle', currency: 'USD' },
-  { id: 'banesco_panama', name: 'Banesco Panamá', currency: 'USD' },
-  { id: 'otro', name: 'Otro', currency: 'USD' },
+  { id: 'efectivo_usd', name: 'Efectivo', currency: 'USD' },
 ];
 
 export function getAllPaymentMethods(customMethods?: CustomPaymentMethod[]): CustomPaymentMethod[] {
@@ -296,7 +291,7 @@ export function calculateMemberSolvency(
 
       const mStatus = monthsStatus[month.id];
       
-      if (mStatus && (mStatus.status === 'deuda' || mStatus.status === 'parcial')) {
+      if (!mStatus || mStatus.status === 'deuda' || mStatus.status === 'parcial') {
         if (todayStr >= fineDeadlineDate) {
           candidateLateFeeMonths.push(month.id);
         }
@@ -306,12 +301,12 @@ export function calculateMemberSolvency(
         // Find the LATEST payment date for this month to see when it was fully paid
         let lastPayDate = '';
         if (monthPays.length > 0) {
-          lastPayDate = monthPays.map((p) => p.paymentDate || p.dateEntered).filter(Boolean).sort().pop() || '';
+          lastPayDate = monthPays.map((p) => (p.paymentDate || p.dateEntered || '').slice(0, 10)).filter(Boolean).sort().pop() || '';
         }
 
         // Check if the bulk payments also cover it (if it was paid in bulk)
         if (!lastPayDate && bulkPayments.length > 0) {
-          lastPayDate = bulkPayments.map((p) => p.paymentDate || p.dateEntered).filter(Boolean).sort().pop() || '';
+          lastPayDate = bulkPayments.map((p) => (p.paymentDate || p.dateEntered || '').slice(0, 10)).filter(Boolean).sort().pop() || '';
         }
 
         // If the date it was finally paid is on or after the deadline, the fine stays
