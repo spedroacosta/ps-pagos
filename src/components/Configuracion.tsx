@@ -481,7 +481,21 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
     const key = 'autoDriveBackupEnabled_' + (tenantId || 'original');
     return localStorage.getItem(key) === 'true';
   });
-  const [serverDriveStatus, setServerDriveStatus] = useState<{ isConnected: boolean; autoBackupEnabled: boolean; lastAutoBackupDate: string | null } | null>(null);
+  const [serverDriveStatus, setServerDriveStatus] = useState<{
+    isConnected: boolean;
+    hasRefreshToken?: boolean;
+    autoBackupEnabled: boolean;
+    backupFrequency?: 'daily' | 'weekly' | 'every_12_hours';
+    backupTime?: string;
+    lastAutoBackupDate: string | null;
+    lastAutoBackupStatus?: string | null;
+    userEmail?: string | null;
+  } | null>(null);
+
+  const [driveFrequency, setDriveFrequency] = useState<'daily' | 'weekly' | 'every_12_hours'>('daily');
+  const [driveBackupTime, setDriveBackupTime] = useState<string>('03:00');
+  const [driveAutoEnabled, setDriveAutoEnabled] = useState<boolean>(true);
+  const [isSavingDriveConfig, setIsSavingDriveConfig] = useState<boolean>(false);
 
   const fetchDriveStatus = useCallback(async () => {
     try {
@@ -492,9 +506,17 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
       if (data.success) {
         setServerDriveStatus({
           isConnected: data.isConnected,
+          hasRefreshToken: data.hasRefreshToken,
           autoBackupEnabled: data.autoBackupEnabled,
-          lastAutoBackupDate: data.lastAutoBackupDate
+          backupFrequency: data.backupFrequency || 'daily',
+          backupTime: data.backupTime || '03:00',
+          lastAutoBackupDate: data.lastAutoBackupDate,
+          lastAutoBackupStatus: data.lastAutoBackupStatus,
+          userEmail: data.userEmail
         });
+        setDriveFrequency(data.backupFrequency || 'daily');
+        setDriveBackupTime(data.backupTime || '03:00');
+        setDriveAutoEnabled(data.autoBackupEnabled !== false);
       }
     } catch (e) {}
   }, [tenantId]);
@@ -502,6 +524,57 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
   useEffect(() => {
     fetchDriveStatus();
   }, [fetchDriveStatus]);
+
+  const handleSaveDriveConfig = async (enabled?: boolean, freq?: string, time?: string) => {
+    try {
+      setIsSavingDriveConfig(true);
+      const newEnabled = enabled !== undefined ? enabled : driveAutoEnabled;
+      const newFreq = freq || driveFrequency;
+      const newTime = time || driveBackupTime;
+
+      const res = await fetch('/api/tenant/google-drive-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getTenantHeaders() },
+        body: JSON.stringify({
+          autoBackupEnabled: newEnabled,
+          backupFrequency: newFreq,
+          backupTime: newTime
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        await fetchDriveStatus();
+        alert('✅ ¡Configuración de respaldo automático actualizada exitosamente!');
+      } else {
+        alert('Error guardando configuración: ' + (data.error || 'Desconocido'));
+      }
+    } catch (err: any) {
+      alert('Error de conexión: ' + err.message);
+    } finally {
+      setIsSavingDriveConfig(false);
+    }
+  };
+
+  const handleTriggerServerDriveBackup = async () => {
+    try {
+      setIsDriveBackingUp(true);
+      const res = await fetch('/api/tenant/google-drive-trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getTenantHeaders() }
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('🎉 ¡Respaldo automático ejecutado con éxito en Google Drive!\n\nID del archivo subido: ' + data.fileId);
+        await fetchDriveStatus();
+      } else {
+        alert('❌ Error al ejecutar respaldo: ' + (data.error || 'Desconocido'));
+      }
+    } catch (err: any) {
+      alert('Error de conexión: ' + err.message);
+    } finally {
+      setIsDriveBackingUp(false);
+    }
+  };
 
   const handleDriveBackup = async () => {
     try {
@@ -2824,14 +2897,16 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
                   <span>Descargar Copia de Seguridad Local (.json)</span>
                 </button>
 
-                {/* Google Drive Refresh Token Connection Banner */}
+                {/* Google Drive Refresh Token Connection & Schedule Config */}
                 {serverDriveStatus?.isConnected ? (
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 text-xs space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-emerald-900 flex items-center gap-1.5">
+                  <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-4 text-xs space-y-3.5">
+                    <div className="flex items-center justify-between pb-2 border-b border-emerald-200/60">
+                      <div className="flex items-center space-x-2">
                         <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                        Servidor Conectado a Google Drive
-                      </span>
+                        <span className="font-bold text-emerald-950">
+                          Google Drive Conectado {serverDriveStatus.userEmail ? `(${serverDriveStatus.userEmail})` : ''}
+                        </span>
+                      </div>
                       <button
                         type="button"
                         onClick={async () => {
@@ -2845,19 +2920,115 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
                             alert('Cuenta de Google Drive desvinculada del servidor.');
                           }
                         }}
-                        className="text-[11px] font-bold text-red-600 hover:underline cursor-pointer"
+                        className="text-[11px] font-bold text-red-600 hover:text-red-700 hover:underline cursor-pointer"
                       >
                         Desconectar
                       </button>
                     </div>
-                    <p className="text-emerald-800 text-[11px] leading-relaxed">
-                      ✅ <strong>Respaldo Automático 100% Desatendido Activo</strong>: El servidor enviará de forma automática una copia de seguridad diaria a tu Google Drive a las 3:00 AM, sin necesidad de que inicies sesión ni tengas el navegador abierto.
-                    </p>
-                    {serverDriveStatus.lastAutoBackupDate && (
-                      <p className="text-[10px] text-emerald-700 font-semibold">
-                        Último respaldo ejecutado por el servidor: {serverDriveStatus.lastAutoBackupDate}
-                      </p>
-                    )}
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="font-bold text-emerald-900 text-xs flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={driveAutoEnabled}
+                            onChange={(e) => {
+                              setDriveAutoEnabled(e.target.checked);
+                              handleSaveDriveConfig(e.target.checked, driveFrequency, driveBackupTime);
+                            }}
+                            className="w-4 h-4 text-emerald-600 rounded border-emerald-300 focus:ring-emerald-500 cursor-pointer"
+                          />
+                          <span>Activar Respaldo Automático en Google Drive</span>
+                        </label>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${driveAutoEnabled ? 'bg-emerald-200 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}>
+                          {driveAutoEnabled ? 'AUTOMÁTICO ACTIVO' : 'PAUSADO'}
+                        </span>
+                      </div>
+
+                      {driveAutoEnabled && (
+                        <div className="bg-white/80 border border-emerald-100 rounded-xl p-3 space-y-3 shadow-2xs">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                Periodicidad
+                              </label>
+                              <select
+                                value={driveFrequency}
+                                onChange={(e) => setDriveFrequency(e.target.value as any)}
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold px-2.5 py-1.5 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                              >
+                                <option value="daily">Diario (Todos los días)</option>
+                                <option value="every_12_hours">Cada 12 horas (2 veces al día)</option>
+                                <option value="weekly">Semanal (Todos los Lunes)</option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                Hora fija del respaldo
+                              </label>
+                              <select
+                                value={driveBackupTime}
+                                onChange={(e) => setDriveBackupTime(e.target.value)}
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold px-2.5 py-1.5 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                              >
+                                <option value="00:00">12:00 AM (Medianoche)</option>
+                                <option value="01:00">01:00 AM</option>
+                                <option value="02:00">02:00 AM</option>
+                                <option value="03:00">03:00 AM (Madrugada)</option>
+                                <option value="04:00">04:00 AM</option>
+                                <option value="05:00">05:00 AM</option>
+                                <option value="06:00">06:00 AM (Mañana)</option>
+                                <option value="07:00">07:00 AM</option>
+                                <option value="08:00">08:00 AM</option>
+                                <option value="09:00">09:00 AM</option>
+                                <option value="12:00">12:00 PM (Mediodía)</option>
+                                <option value="15:00">03:00 PM (Tarde)</option>
+                                <option value="18:00">06:00 PM (Tarde/Noche)</option>
+                                <option value="21:00">09:00 PM (Noche)</option>
+                                <option value="23:00">11:00 PM</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="flex justify-end pt-1">
+                            <button
+                              type="button"
+                              onClick={() => handleSaveDriveConfig()}
+                              disabled={isSavingDriveConfig}
+                              className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-[11px] px-3 py-1.5 rounded-lg transition-all cursor-pointer shadow-2xs"
+                            >
+                              {isSavingDriveConfig ? 'Guardando...' : '💾 Guardar Horario de Respaldo'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="text-[11px] text-emerald-900 bg-emerald-100/60 rounded-lg p-2.5 space-y-1">
+                        <p className="font-semibold">
+                          📌 <strong>Horario Programado:</strong> Se guardará automáticamente en Drive {driveFrequency === 'daily' ? 'todos los días' : driveFrequency === 'weekly' ? 'todos los lunes' : 'cada 12 horas'} a las <strong>{driveBackupTime}</strong>.
+                        </p>
+                        {serverDriveStatus.lastAutoBackupStatus ? (
+                          <p className="text-[10px] text-emerald-800 font-medium">
+                            <strong>Estado del servidor:</strong> {serverDriveStatus.lastAutoBackupStatus}
+                          </p>
+                        ) : serverDriveStatus.lastAutoBackupDate ? (
+                          <p className="text-[10px] text-emerald-800 font-medium">
+                            <strong>Última ejecución:</strong> {serverDriveStatus.lastAutoBackupDate}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleTriggerServerDriveBackup}
+                        disabled={isDriveBackingUp}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 px-3 rounded-lg flex items-center justify-center space-x-1.5 shadow-2xs transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>{isDriveBackingUp ? 'Ejecutando Respaldo...' : '⚡ Ejecutar Respaldo Automático en Google Drive Ahora'}</span>
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <button
@@ -2884,7 +3055,7 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
                                 });
                                 const data = await res.json();
                                 if (data.success) {
-                                  alert('🎉 ¡Vinculación Permanente de Google Drive Exitosa!\n\nTu perfil ha quedado registrado en el servidor con Refresh Token. Las copias de seguridad de esta promoción se subirán de forma 100% automática a tu Google Drive todos los días a las 3:00 AM, sin que nadie tenga que iniciar sesión.');
+                                  alert('🎉 ¡Vinculación Permanente de Google Drive Exitosa!\n\nTu cuenta ha quedado registrada. Las copias de seguridad de esta promoción se guardarán de forma 100% automática en tu Google Drive a la hora configurada.');
                                   fetchDriveStatus();
                                 } else {
                                   alert('Error al guardar credenciales en servidor: ' + (data.error || 'Desconocido'));
@@ -2920,9 +3091,19 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
                     className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-xs transition-all cursor-pointer w-full"
                   >
                     <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12.01 1.493l-4.47 7.732h8.941l4.47-7.732h-8.94m-5.462 1.706L2.073 10.93l4.472 7.73 4.47-7.73-4.467-7.73zM18.442 12.637l-4.47 7.732H5.03l4.47-7.732h8.942z"/></svg>
-                    <span>Vincular Google Drive Permanente (Refresh Token)</span>
+                    <span>Vincular Google Drive para Respaldos Automáticos</span>
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={handleDriveBackup}
+                  disabled={isDriveBackingUp}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-xs transition-all cursor-pointer w-full disabled:opacity-50"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>{isDriveBackingUp ? 'Subiendo...' : 'Respaldar Ahora Manualmente en Google Drive'}</span>
+                </button>
 
                 <button
                   type="button"

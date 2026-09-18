@@ -494,6 +494,7 @@ export function distributePaymentAcrossConcepts(params: {
   existingPayments?: PaymentEntry[];
   manualAllocationsOriginal?: Record<string, number>;
   customMethods?: CustomPaymentMethod[];
+  lateFeeConfig?: LateFeeConfig;
 }): ConceptDistributionItem[] {
   const {
     memberId,
@@ -506,6 +507,7 @@ export function distributePaymentAcrossConcepts(params: {
     quotas,
     existingPayments = [],
     customMethods,
+    lateFeeConfig,
   } = params;
 
   if (!selectedConcepts || selectedConcepts.length === 0 || amountOriginal <= 0) {
@@ -546,8 +548,8 @@ export function distributePaymentAcrossConcepts(params: {
         const m = months.find((m) => m.id === id);
         targetLabel = m ? `Multa de ${m.name} ${m.year}` : `Multa ${id}`;
       }
-      requiredFee_direct = 2; // Default fallback for waterfall
-      requiredFee_bcv = 3;    // Default fallback for waterfall
+      requiredFee_direct = lateFeeConfig?.feeUSD_direct || 2;
+      requiredFee_bcv = lateFeeConfig?.feeUSD_bcv || 3;
     } else {
       const q = quotas.find((q) => q.id === id);
       targetLabel = q ? q.title : id;

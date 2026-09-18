@@ -151,7 +151,7 @@ export const RegistroPagos: React.FC<RegistroPagosProps> = ({
           const isDollarPurchase = Boolean(item.isDollarPurchase);
           const matchedMem = members.find((m) => m.id === item.matchedMemberId);
           const defaultTargetId = item.targetId || months[4]?.id || months[0]?.id || '2026-05';
-          const defaultTargetType = item.targetType === 'quota' ? 'quota' : 'month';
+          const defaultTargetType = (item.targetType === 'quota' || item.targetType === 'late_fee') ? item.targetType : 'month';
           const initialConcepts = item.selectedConcepts && Array.isArray(item.selectedConcepts) && item.selectedConcepts.length > 0
             ? item.selectedConcepts
             : [`${defaultTargetType}:${defaultTargetId}`];
@@ -871,6 +871,30 @@ También informamos que hoy compramos $100 en divisas con bolívares de la cuent
                                   }`}
                                 >
                                   {q.name}
+                                </button>
+                              );
+                            })}
+                            {months.map((m) => {
+                              const key = `late_fee:${m.id}`;
+                              const isChecked = item.selectedConcepts?.includes(key);
+                              return (
+                                <button
+                                  key={key}
+                                  type="button"
+                                  onClick={() => {
+                                    const current = item.selectedConcepts || [];
+                                    const updated = current.includes(key)
+                                      ? current.filter((x) => x !== key)
+                                      : [...current, key];
+                                    updateItemField(item.id, 'selectedConcepts', updated);
+                                  }}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-all ${
+                                    isChecked
+                                      ? 'bg-rose-50 border-rose-300 text-rose-800'
+                                      : 'bg-white border-slate-200 text-slate-500'
+                                  }`}
+                                >
+                                  Multa {m.name}
                                 </button>
                               );
                             })}

@@ -73,7 +73,7 @@ export const WhatsAppParser: React.FC<WhatsAppParserProps> = ({
         const formatted: ParsedWhatsAppItem[] = data.items.map((item: any, idx: number) => {
           const matchedMem = members.find((m) => m.id === item.matchedMemberId);
           const defaultTargetId = item.targetId || months[4]?.id || months[0]?.id || '2026-05';
-          const defaultTargetType = item.targetType === 'quota' ? 'quota' : 'month';
+          const defaultTargetType = (item.targetType === 'quota' || item.targetType === 'late_fee') ? item.targetType : 'month';
           const initialConcepts = item.selectedConcepts && Array.isArray(item.selectedConcepts) && item.selectedConcepts.length > 0
             ? item.selectedConcepts
             : [`${defaultTargetType}:${defaultTargetId}`];
@@ -563,6 +563,35 @@ export const WhatsAppParser: React.FC<WhatsAppParserProps> = ({
                           </div>
                         </>
                       )}
+
+                      <span className="text-[9px] uppercase font-extrabold text-rose-700 block tracking-wider mt-2">Multas por Atraso / Mora</span>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                        {months.map((m) => {
+                          const key = `late_fee:${m.id}`;
+                          const isChecked = selectedConcepts.includes(key);
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              onClick={() => toggleItemConceptKey(item.id, key)}
+                              className={`flex items-center space-x-1.5 p-1.5 rounded-lg border text-left cursor-pointer transition-all ${
+                                isChecked
+                                  ? 'bg-rose-50 border-rose-400 text-rose-950 font-bold'
+                                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                              }`}
+                            >
+                              {isChecked ? (
+                                <CheckSquare className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                              ) : (
+                                <Square className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              )}
+                              <span className="text-[10px] truncate">
+                                Multa {m.name} {m.year}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
 

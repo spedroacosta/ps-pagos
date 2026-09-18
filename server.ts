@@ -30,6 +30,24 @@ function getCaracasDateString(): string {
   }
 }
 
+function getCaracasTimeString(): string {
+  try {
+    const options: Intl.DateTimeFormatOptions = {
+      timeZone: 'America/Caracas',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    };
+    const formatter = new Intl.DateTimeFormat('sv-SE', options);
+    return formatter.format(new Date()); // Returns HH:mm
+  } catch (e) {
+    const d = new Date();
+    const h = String(d.getHours()).padStart(2, '0');
+    const m = String(d.getMinutes()).padStart(2, '0');
+    return `${h}:${m}`;
+  }
+}
+
 const app = express();
 const PORT = 3000;
 
@@ -117,7 +135,10 @@ export interface TenantConfig {
     accessToken?: string;
     refreshToken?: string;
     autoBackupEnabled?: boolean;
+    backupFrequency?: 'daily' | 'weekly' | 'every_12_hours';
+    backupTime?: string;
     lastAutoBackupDate?: string;
+    lastAutoBackupStatus?: string;
     userEmail?: string;
     updatedAt?: string;
   };
@@ -407,7 +428,12 @@ function distributePaymentAcrossConceptsInTelegram(params: {
         requiredFee_bcv = m.feeUSD_bcv || m.feeUSD || 16;
       }
     } else if (tType === 'late_fee') {
-      targetLabel = 'Multas por Atraso';
+      if (id === 'global') {
+        targetLabel = 'Multas por Atraso';
+      } else {
+        const m = months.find((m) => m.id === id);
+        targetLabel = m ? `Multa de ${m.name} ${m.year}` : `Multa ${id}`;
+      }
       requiredFee_direct = 2;
       requiredFee_bcv = 3;
     } else {
@@ -589,8 +615,11 @@ REGLAS CRÍTICAS DE EXTRACCIÓN Y RECONOCIMIENTO:
 6. METADATOS Y FECHAS DE WHATSAPP:
 - Si el mensaje incluye metadatos de WhatsApp (ej: "[5/8/2026, 17:28] Pedro Acosta: ..."), extrae la fecha (5/8/2026 -> paymentDate: "2026-08-05") e IGNORE el nombre del remitente del encabezado para la coincidencia del alumno que pagó.
 
-7. RECONOCIMIENTO DE EGRESOS / GASTOS DE LA PROMOCIÓN:
-- Si el texto describe el pago de una multa o atraso (ej: "multa", "atraso", "penalidad", "pago de multa mes de junio"), asócialo al targetType "late_fee", targetId "YYYY-MM" del mes al que pertenece la multa.
+7. RECONOCIMIENTO OBLIGATORIO DE MULTAS / MORAS VS MENSUALIDADES (ALTAMENTE CRÍTICO):
+- Si el mensaje incluye la palabra "multa", "multas", "atraso", "mora", "penalidad", "sancion" o similar (Ej: "Multa de junio y multa de julio", "pago multa de mayo", "multa de junio $2"), DEBES asignar targetType: "late_fee".
+- NUNCA clasifiques un pago de multa como mensualidad ("month"). Si dice "multa de junio", el concepto en selectedConcepts DEBE SER "late_fee:2026-06", NUNCA "month:2026-06".
+- Si menciona varias multas (Ej: "Multa de junio y multa de julio"), selectedConcepts DEBE SER ["late_fee:2026-06", "late_fee:2026-07"], targetType: "late_fee", targetId: "2026-06", y targetLabel: "Multas de Junio y Julio 2026".
+- Solo si el texto dice "mensualidad de junio" o "junio" sin la palabra multa, es "month:2026-06".
 - Si el pago incluye múltiples conceptos (Ej: "Multa de Mayo 3$ + Mensualidad Mayo 14$"), utiliza \`selectedConcepts\` (ej: ["late_fee:2026-05", "month:2026-05"]) Y ADEMÁS llena \`conceptAllocationsUSD\` especificando los dólares asignados a cada uno.
 - Si el texto describe un egreso, gasto o salida de dinero realizada por el comité/promoción (ej: "Gasto: 50$ en impresiones", "Egreso 1500 bs pago de transporte ref 4892", "Se pagaron 20$ a fotógrafo", "Gastados 4500 bs en decoración", "Pago de servicio de sonido $100", "Gasto de $30 en bebidas"), establece isExpense: true.
 - Asigna expenseCategory ("Logística", "Eventos", "Administrativo", "Protocolo", "Imprevistos") y expenseDescription con el concepto detallado del gasto.
@@ -623,7 +652,7 @@ Devuelve una lista JSON con cada pago, cambio de divisa o egreso detectado.
                   currency: { type: Type.STRING },
                   bcvRate: { type: Type.NUMBER },
                   reference: { type: Type.STRING },
-                  targetType: { type: Type.STRING },
+                  targetType: { type: Type.STRING, description: 'month, quota, o late_fee' },
                   targetId: { type: Type.STRING },
                   targetLabel: { type: Type.STRING },
                   selectedConcepts: {
@@ -2043,8 +2072,10 @@ function fallbackParseWhatsApp(
       }
     }
 
-    // E. Detect Target Months & Special Quotas
-    const targetList: Array<{ type: 'month' | 'quota'; id: string; label: string }> = [];
+    // E. Detect Target Months, Special Quotas & Late Fees (Multas)
+    const targetList: Array<{ type: 'month' | 'quota' | 'late_fee'; id: string; label: string }> = [];
+
+    const isLateFeeMentioned = /\b(multa|multas|atraso|mora|penalidad|sancion|sanciones)\b/i.test(cleanBlock);
 
     // Check special quotas
     if (specialQuotas && specialQuotas.length > 0) {
@@ -2077,13 +2108,21 @@ function fallbackParseWhatsApp(
 
     for (const mk of monthKeywords) {
       if (cleanBlock.includes(mk.key)) {
-        targetList.push({ type: 'month', id: mk.id, label: mk.label });
+        if (isLateFeeMentioned) {
+          targetList.push({ type: 'late_fee', id: mk.id, label: `Multa de ${mk.label}` });
+        } else {
+          targetList.push({ type: 'month', id: mk.id, label: mk.label });
+        }
       }
     }
 
     if (targetList.length === 0) {
-      const defaultMonth = monthsConfig[4] || monthsConfig[0] || { id: '2026-05', name: 'Mayo', year: 2026 };
-      targetList.push({ type: 'month', id: defaultMonth.id, label: `${defaultMonth.name} ${defaultMonth.year}` });
+      if (isLateFeeMentioned) {
+        targetList.push({ type: 'late_fee', id: 'global', label: 'Multa por Atraso' });
+      } else {
+        const defaultMonth = monthsConfig[4] || monthsConfig[0] || { id: '2026-05', name: 'Mayo', year: 2026 };
+        targetList.push({ type: 'month', id: defaultMonth.id, label: `${defaultMonth.name} ${defaultMonth.year}` });
+      }
     }
 
     // F. Attach selectedConcepts list for single item with multi-concept checkboxes
@@ -2183,8 +2222,11 @@ REGLAS CRÍTICAS DE EXTRACCIÓN Y RECONOCIMIENTO:
 6. METADATOS Y FECHAS DE WHATSAPP:
 - Si el mensaje incluye metadatos de WhatsApp (ej: "[5/8/2026, 17:28] Pedro Acosta: ..."), extrae la fecha (5/8/2026 -> paymentDate: "2026-08-05") e IGNORE el nombre del remitente del encabezado para la coincidencia del alumno que pagó.
 
-7. RECONOCIMIENTO DE EGRESOS / GASTOS DE LA PROMOCIÓN:
-- Si el texto describe el pago de una multa o atraso (ej: "multa", "atraso", "penalidad", "pago de multa mes de junio"), asócialo al targetType "late_fee", targetId "YYYY-MM" del mes al que pertenece la multa.
+7. RECONOCIMIENTO OBLIGATORIO DE MULTAS / MORAS VS MENSUALIDADES (ALTAMENTE CRÍTICO):
+- Si el mensaje incluye la palabra "multa", "multas", "atraso", "mora", "penalidad", "sancion" o similar (Ej: "Multa de junio y multa de julio", "pago multa de mayo", "multa de junio $2"), DEBES asignar targetType: "late_fee".
+- NUNCA clasifiques un pago de multa como mensualidad ("month"). Si dice "multa de junio", el concepto en selectedConcepts DEBE SER "late_fee:2026-06", NUNCA "month:2026-06".
+- Si menciona varias multas (Ej: "Multa de junio y multa de julio"), selectedConcepts DEBE SER ["late_fee:2026-06", "late_fee:2026-07"], targetType: "late_fee", targetId: "2026-06", y targetLabel: "Multas de Junio y Julio 2026".
+- Solo si el texto dice "mensualidad de junio" o "junio" sin la palabra multa, es "month:2026-06".
 - Si el pago incluye múltiples conceptos (Ej: "Multa de Mayo 3$ + Mensualidad Mayo 14$"), utiliza \`selectedConcepts\` (ej: ["late_fee:2026-05", "month:2026-05"]) Y ADEMÁS llena \`conceptAllocationsUSD\` especificando los dólares asignados a cada uno.
 - Si el texto describe un egreso, gasto o salida de dinero realizada por el comité/promoción (ej: "Gasto: 50$ en impresiones", "Egreso 1500 bs pago de transporte ref 4892", "Se pagaron 20$ a fotógrafo", "Gastados 4500 bs en decoración", "Pago de servicio de sonido $100"), establece isExpense: true.
 - Asigna expenseCategory ("Logística", "Eventos", "Administrativo", "Protocolo", "Imprevistos") y expenseDescription con el concepto detallado del gasto.
@@ -2219,13 +2261,13 @@ Devuelve una lista JSON con cada pago, cambio de divisa o egreso detectado.
                 currency: { type: Type.STRING, description: 'VES o USD' },
                 bcvRate: { type: Type.NUMBER, description: 'Tasa BCV utilizada para la conversión' },
                 reference: { type: Type.STRING, description: 'Número de referencia bancaria' },
-                targetType: { type: Type.STRING, description: 'month o quota' },
-                targetId: { type: Type.STRING, description: 'ID del mes ej 2026-06 o ID de cuota especial' },
-                targetLabel: { type: Type.STRING, description: 'Etiqueta descriptiva del mes/cuota' },
+                targetType: { type: Type.STRING, description: 'month, quota, o late_fee (utiliza late_fee SIEMPRE que sea un pago de multa/mora)' },
+                targetId: { type: Type.STRING, description: 'ID del mes ej 2026-06 o ID de cuota especial o ID de multa' },
+                targetLabel: { type: Type.STRING, description: 'Etiqueta descriptiva del mes/cuota/multa' },
                 selectedConcepts: {
                   type: Type.ARRAY,
                   items: { type: Type.STRING },
-                  description: 'Lista de conceptos seleccionados en formato "type:id" (ej: ["quota:sq-1", "month:2026-05", "late_fee:2026-05"])'
+                  description: 'Lista de conceptos seleccionados en formato "type:id" (ej: ["quota:sq-1", "month:2026-05", "late_fee:2026-06", "late_fee:2026-07"])'
                 },
                 conceptAllocationsUSD: {
                   type: Type.ARRAY,
@@ -2945,11 +2987,117 @@ function saveBackupConfig(config: any) {
   }
 }
 
+// Single Tenant Drive Backup Executor
+async function executeSingleTenantDriveBackup(tenantId: string, isForce: boolean = false): Promise<{ success: boolean; fileId?: string; error?: string }> {
+  const todayStr = getCaracasDateString();
+  const timeStr = getCaracasTimeString();
+  const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "753906353358-ld8k47do0qkqfsnmidk4t50ojrbaihre.apps.googleusercontent.com";
+  const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
+
+  const config = await loadTenantConfig(tenantId);
+  const gd = config.googleDrive;
+
+  if (!gd) {
+    return { success: false, error: 'Google Drive no está configurado.' };
+  }
+
+  if (!isForce) {
+    if (gd.autoBackupEnabled === false) {
+      return { success: false, error: 'El respaldo automático está desactivado.' };
+    }
+
+    if (!gd.refreshToken && !gd.accessToken) {
+      return { success: false, error: 'No hay cuenta de Google vinculada.' };
+    }
+
+    const frequency = gd.backupFrequency || 'daily';
+    const targetTime = gd.backupTime || '03:00'; // e.g. "03:00"
+
+    if (frequency === 'daily' && gd.lastAutoBackupDate === todayStr) {
+      return { success: false, error: 'El respaldo diario ya fue realizado hoy.' };
+    }
+
+    if (frequency === 'weekly') {
+      const now = new Date();
+      if (now.getDay() !== 1 && gd.lastAutoBackupDate) {
+        const lastDate = new Date(gd.lastAutoBackupDate);
+        const diffDays = (now.getTime() - lastDate.getTime()) / (1000 * 3600 * 24);
+        if (diffDays < 6) {
+          return { success: false, error: 'Respaldo semanal ya realizado recientemente.' };
+        }
+      }
+      if (gd.lastAutoBackupDate === todayStr) {
+        return { success: false, error: 'Respaldo semanal ya realizado hoy.' };
+      }
+    }
+
+    if (frequency !== 'every_12_hours') {
+      if (timeStr < targetTime) {
+        return { success: false, error: `Hora programada (${targetTime}) no ha llegado aún.` };
+      }
+    }
+  }
+
+  try {
+    const oauth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
+    oauth2Client.setCredentials({
+      refresh_token: gd.refreshToken,
+      access_token: gd.accessToken
+    });
+
+    if (gd.refreshToken) {
+      try {
+        const refreshed = await oauth2Client.getAccessToken();
+        if (refreshed && refreshed.token) {
+          gd.accessToken = refreshed.token;
+        }
+      } catch (rErr: any) {
+        console.warn(`[Drive Backup Engine] Token refresh warning for ${tenantId}:`, rErr.message);
+      }
+    }
+
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    const tenantData = await loadServerData(tenantId);
+    const fileName = `control_pagos_respaldo_${tenantId}_${todayStr}.json`;
+
+    const fileMetadata = {
+      name: fileName,
+      mimeType: 'application/json',
+    };
+    const media = {
+      mimeType: 'application/json',
+      body: JSON.stringify(tenantData, null, 2)
+    };
+
+    const file = await drive.files.create({
+      requestBody: fileMetadata,
+      media: media,
+      fields: 'id',
+    });
+
+    if (file.data.id) {
+      gd.lastAutoBackupDate = todayStr;
+      gd.lastAutoBackupStatus = `Éxito: Guardado automáticamente el ${todayStr} a las ${timeStr}`;
+      gd.updatedAt = new Date().toISOString();
+      config.googleDrive = gd;
+      await saveTenantConfig(tenantId, config);
+      console.log(`[Drive Auto-Backup Engine] Backup uploaded for tenant ${tenantId} -> File ID: ${file.data.id}`);
+      return { success: true, fileId: file.data.id };
+    }
+    throw new Error('No se recibió id de archivo de Google Drive');
+  } catch (err: any) {
+    const errMsg = err.message || 'Error desconocido';
+    gd.lastAutoBackupStatus = `Error el ${todayStr} (${timeStr}): ${errMsg}`;
+    gd.updatedAt = new Date().toISOString();
+    config.googleDrive = gd;
+    await saveTenantConfig(tenantId, config);
+    console.error(`[Drive Auto-Backup Engine] Error for tenant ${tenantId}:`, errMsg);
+    return { success: false, error: errMsg };
+  }
+}
+
 // Tenant Daily Google Drive Backup Routine (Server-side with Refresh Tokens)
 async function runTenantDailyDriveBackups(): Promise<void> {
-  const todayStr = new Date().toISOString().split('T')[0];
-  console.log(`[Drive Auto-Backup Engine] Running automated daily Drive backup check for date: ${todayStr}...`);
-
   let tenantsMap: Record<string, any> = {};
   if (fs.existsSync(TENANTS_FILE)) {
     try {
@@ -2960,78 +3108,8 @@ async function runTenantDailyDriveBackups(): Promise<void> {
     tenantsMap['original'] = { id: 'original', name: 'Promoción Principal' };
   }
 
-  const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "753906353358-ld8k47do0qkqfsnmidk4t50ojrbaihre.apps.googleusercontent.com";
-  const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
-
   for (const tenantId of Object.keys(tenantsMap)) {
-    try {
-      const config = await loadTenantConfig(tenantId);
-      const gd = config.googleDrive;
-
-      if (!gd || gd.autoBackupEnabled === false) {
-        continue;
-      }
-
-      if (gd.lastAutoBackupDate === todayStr) {
-        continue;
-      }
-
-      if (!gd.refreshToken && !gd.accessToken) {
-        continue;
-      }
-
-      console.log(`[Drive Auto-Backup Engine] Backing up tenant ${tenantId} to Google Drive...`);
-
-      const oauth2Client = new google.auth.OAuth2(
-        GOOGLE_CLIENT_ID,
-        GOOGLE_CLIENT_SECRET
-      );
-
-      oauth2Client.setCredentials({
-        refresh_token: gd.refreshToken,
-        access_token: gd.accessToken
-      });
-
-      // Try refreshing access token if refresh_token is present
-      if (gd.refreshToken) {
-        try {
-          const refreshed = await oauth2Client.getAccessToken();
-          if (refreshed && refreshed.token) {
-            gd.accessToken = refreshed.token;
-          }
-        } catch (rErr: any) {
-          console.warn(`[Drive Auto-Backup Engine] Token refresh note for ${tenantId}:`, rErr.message);
-        }
-      }
-
-      const drive = google.drive({ version: 'v3', auth: oauth2Client });
-      const tenantData = await loadServerData(tenantId);
-      const fileName = `control_pagos_respaldo_${tenantId}_${todayStr}.json`;
-
-      const fileMetadata = {
-        name: fileName,
-        mimeType: 'application/json',
-      };
-      const media = {
-        mimeType: 'application/json',
-        body: JSON.stringify(tenantData, null, 2)
-      };
-
-      const file = await drive.files.create({
-        requestBody: fileMetadata,
-        media: media,
-        fields: 'id',
-      });
-
-      if (file.data.id) {
-        console.log(`[Drive Auto-Backup Engine] Daily backup uploaded for tenant ${tenantId} -> File ID: ${file.data.id}`);
-        gd.lastAutoBackupDate = todayStr;
-        config.googleDrive = gd;
-        await saveTenantConfig(tenantId, config);
-      }
-    } catch (err: any) {
-      console.error(`[Drive Auto-Backup Engine] Error for tenant ${tenantId}:`, err.message);
-    }
+    await executeSingleTenantDriveBackup(tenantId, false);
   }
 }
 
@@ -3767,7 +3845,10 @@ async function startServer() {
         accessToken: finalAccessToken || config.googleDrive?.accessToken || '',
         refreshToken: finalRefreshToken || config.googleDrive?.refreshToken || '',
         autoBackupEnabled: autoBackupEnabled !== false,
+        backupFrequency: config.googleDrive?.backupFrequency || 'daily',
+        backupTime: config.googleDrive?.backupTime || '03:00',
         lastAutoBackupDate: config.googleDrive?.lastAutoBackupDate || '',
+        lastAutoBackupStatus: config.googleDrive?.lastAutoBackupStatus || '',
         userEmail: userEmail || config.googleDrive?.userEmail || '',
         updatedAt: new Date().toISOString()
       };
@@ -3790,12 +3871,54 @@ async function startServer() {
         isConnected: !!(gd && (gd.refreshToken || gd.accessToken)),
         hasRefreshToken: !!(gd && gd.refreshToken),
         autoBackupEnabled: gd ? (gd.autoBackupEnabled !== false) : false,
+        backupFrequency: gd?.backupFrequency || 'daily',
+        backupTime: gd?.backupTime || '03:00',
         lastAutoBackupDate: gd?.lastAutoBackupDate || null,
+        lastAutoBackupStatus: gd?.lastAutoBackupStatus || null,
         userEmail: gd?.userEmail || null,
         updatedAt: gd?.updatedAt || null
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/tenant/google-drive-config', express.json(), async (req, res) => {
+    try {
+      const tenantId = (req.headers['x-tenant-id'] as string) || req.body.tenantId || 'original';
+      const { autoBackupEnabled, backupFrequency, backupTime } = req.body;
+      const config = await loadTenantConfig(tenantId);
+
+      const gd = config.googleDrive || { accessToken: '', refreshToken: '' };
+      gd.autoBackupEnabled = Boolean(autoBackupEnabled);
+      if (backupFrequency && ['daily', 'weekly', 'every_12_hours'].includes(backupFrequency)) {
+        gd.backupFrequency = backupFrequency;
+      }
+      if (backupTime && typeof backupTime === 'string') {
+        gd.backupTime = backupTime;
+      }
+      gd.updatedAt = new Date().toISOString();
+
+      config.googleDrive = gd;
+      await saveTenantConfig(tenantId, config);
+
+      res.json({ success: true, googleDrive: config.googleDrive });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Error guardando configuración de Drive' });
+    }
+  });
+
+  app.post('/api/tenant/google-drive-trigger', express.json(), async (req, res) => {
+    try {
+      const tenantId = (req.headers['x-tenant-id'] as string) || req.body.tenantId || 'original';
+      const result = await executeSingleTenantDriveBackup(tenantId, true);
+      if (result.success) {
+        res.json({ success: true, fileId: result.fileId, message: 'Respaldo ejecutado y subido correctamente a Google Drive' });
+      } else {
+        res.status(400).json({ success: false, error: result.error });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Error al ejecutar respaldo en Google Drive' });
     }
   });
 
@@ -3846,10 +3969,14 @@ async function startServer() {
       console.error('Tenant Drive daily backup error:', dErr);
     });
 
-    // Interval check every 12 hours
+    // Interval check every 5 minutes for scheduled tenant drive backups
+    setInterval(() => {
+      runTenantDailyDriveBackups().catch(err => console.error('Interval tenant drive backup error:', err));
+    }, 5 * 60 * 1000);
+
+    // Interval check every 12 hours for master daily snapshot
     setInterval(() => {
       generateMasterDailySnapshot().catch(err => console.error('Interval master backup error:', err));
-      runTenantDailyDriveBackups().catch(err => console.error('Interval tenant drive backup error:', err));
     }, 12 * 3600 * 1000);
   });
 }
