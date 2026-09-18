@@ -32,14 +32,21 @@ function getCaracasDateString(): string {
 
 function getCaracasTimeString(): string {
   try {
-    const options: Intl.DateTimeFormatOptions = {
+    const formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/Caracas',
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
-    };
-    const formatter = new Intl.DateTimeFormat('sv-SE', options);
-    return formatter.format(new Date()); // Returns HH:mm
+    });
+    const parts = formatter.formatToParts(new Date());
+    let hour = '00';
+    let minute = '00';
+    for (const part of parts) {
+      if (part.type === 'hour') hour = part.value.padStart(2, '0');
+      if (part.type === 'minute') minute = part.value.padStart(2, '0');
+    }
+    if (hour === '24') hour = '00';
+    return `${hour}:${minute}`;
   } catch (e) {
     const d = new Date();
     const h = String(d.getHours()).padStart(2, '0');
@@ -3083,12 +3090,16 @@ async function executeSingleTenantDriveBackup(tenantId: string, isForce: boolean
     });
 
     if (file.data.id) {
-      gd.lastAutoBackupDate = todayStr;
-      gd.lastAutoBackupStatus = `Éxito: Guardado automáticamente el ${todayStr} a las ${timeStr}`;
+      if (!isForce) {
+        gd.lastAutoBackupDate = todayStr;
+        gd.lastAutoBackupStatus = `Éxito (Automático): Guardado el ${todayStr} a las ${timeStr}`;
+      } else {
+        gd.lastAutoBackupStatus = `Éxito (Prueba manual): Guardado el ${todayStr} a las ${timeStr}`;
+      }
       gd.updatedAt = new Date().toISOString();
       config.googleDrive = gd;
       await saveTenantConfig(tenantId, config);
-      console.log(`[Drive Auto-Backup Engine] Backup uploaded for tenant ${tenantId} -> File ID: ${file.data.id}`);
+      console.log(`[Drive Auto-Backup Engine] Backup uploaded for tenant ${tenantId} (force: ${isForce}) -> File ID: ${file.data.id}`);
       return { success: true, fileId: file.data.id };
     }
     throw new Error('No se recibió id de archivo de Google Drive');
@@ -3902,6 +3913,9 @@ async function startServer() {
         gd.backupFrequency = backupFrequency;
       }
       if (backupTime && typeof backupTime === 'string') {
+        if (gd.backupTime !== backupTime) {
+          gd.lastAutoBackupDate = ''; // reset so new scheduled time can fire today if not reached yet
+        }
         gd.backupTime = backupTime;
       }
       gd.updatedAt = new Date().toISOString();
@@ -3976,10 +3990,10 @@ async function startServer() {
       console.error('Tenant Drive daily backup error:', dErr);
     });
 
-    // Interval check every 5 minutes for scheduled tenant drive backups
+    // Interval check every 1 minute for scheduled tenant drive backups
     setInterval(() => {
       runTenantDailyDriveBackups().catch(err => console.error('Interval tenant drive backup error:', err));
-    }, 5 * 60 * 1000);
+    }, 60 * 1000);
 
     // Interval check every 12 hours for master daily snapshot
     setInterval(() => {

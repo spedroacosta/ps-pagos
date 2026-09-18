@@ -3089,16 +3089,6 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
                   <Upload className="w-3.5 h-3.5" />
                   <span>{isDriveBackingUp ? 'Subiendo...' : 'Respaldar Ahora Manualmente en Google Drive'}</span>
                 </button>
-
-                <button
-                  type="button"
-                  onClick={handleDriveBackup}
-                  disabled={isDriveBackingUp}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-xs transition-all cursor-pointer w-full disabled:opacity-50"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>{isDriveBackingUp ? 'Subiendo...' : 'Respaldar Ahora Manualmente en Google Drive'}</span>
-                </button>
               </div>
             </div>
 
