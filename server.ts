@@ -615,12 +615,13 @@ REGLAS CRÍTICAS DE EXTRACCIÓN Y RECONOCIMIENTO:
 6. METADATOS Y FECHAS DE WHATSAPP:
 - Si el mensaje incluye metadatos de WhatsApp (ej: "[5/8/2026, 17:28] Pedro Acosta: ..."), extrae la fecha (5/8/2026 -> paymentDate: "2026-08-05") e IGNORE el nombre del remitente del encabezado para la coincidencia del alumno que pagó.
 
-7. RECONOCIMIENTO OBLIGATORIO DE MULTAS / MORAS VS MENSUALIDADES (ALTAMENTE CRÍTICO):
-- Si el mensaje incluye la palabra "multa", "multas", "atraso", "mora", "penalidad", "sancion" o similar (Ej: "Multa de junio y multa de julio", "pago multa de mayo", "multa de junio $2"), DEBES asignar targetType: "late_fee".
-- NUNCA clasifiques un pago de multa como mensualidad ("month"). Si dice "multa de junio", el concepto en selectedConcepts DEBE SER "late_fee:2026-06", NUNCA "month:2026-06".
-- Si menciona varias multas (Ej: "Multa de junio y multa de julio"), selectedConcepts DEBE SER ["late_fee:2026-06", "late_fee:2026-07"], targetType: "late_fee", targetId: "2026-06", y targetLabel: "Multas de Junio y Julio 2026".
-- Solo si el texto dice "mensualidad de junio" o "junio" sin la palabra multa, es "month:2026-06".
-- Si el pago incluye múltiples conceptos (Ej: "Multa de Mayo 3$ + Mensualidad Mayo 14$"), utiliza \`selectedConcepts\` (ej: ["late_fee:2026-05", "month:2026-05"]) Y ADEMÁS llena \`conceptAllocationsUSD\` especificando los dólares asignados a cada uno.
+7. RECONOCIMIENTO INDIVIDUAL DE CONCEPTOS Y MULTAS (ALTAMENTE CRÍTICO):
+- Analiza CADA mes mencionado en el mensaje de forma INDIVIDUAL e INDEPENDIENTE:
+  * Un mes es Mensualidad ("month:YYYY-MM") si se menciona solo, o como abono, o como mensualidad (Ej: "Julio", "abono Agosto", "6$ abono Agosto", "mensualidad de mayo").
+  * Un mes es Multa/Mora ("late_fee:YYYY-MM") ÚNICAMENTE si la palabra "multa", "multas", "atraso", "mora" o "penalidad" acompaña directamente a ESE mes específico (Ej: "multa de julio", "multas de junio").
+  * NUNCA clasifiques como "late_fee" a un mes que no dice multa (ej: "6$ abono Agosto" o "Julio") simplemente porque otro mes en la misma frase decía la palabra "multa".
+  * Si un mismo mensaje combina la mensualidad y la multa de un mismo mes (Ej: "Julio + Multa de Julio"), DEBES incluir AMBOS conceptos en \`selectedConcepts\`: ["month:2026-07", "late_fee:2026-07"].
+  * Si el mensaje especifica múltiples conceptos (Ej: "Julio + Multa de Julio + 6$ abono Agosto"), DEBES incluir todos los conceptos en \`selectedConcepts\` (ej: ["month:2026-07", "late_fee:2026-07", "month:2026-08"]) Y ADEMÁS llenar \`conceptAllocationsUSD\` especificando los dólares asignados a cada uno (ej: month:2026-07 = $12, late_fee:2026-07 = $2, month:2026-08 = $6).
 - Si el texto describe un egreso, gasto o salida de dinero realizada por el comité/promoción (ej: "Gasto: 50$ en impresiones", "Egreso 1500 bs pago de transporte ref 4892", "Se pagaron 20$ a fotógrafo", "Gastados 4500 bs en decoración", "Pago de servicio de sonido $100", "Gasto de $30 en bebidas"), establece isExpense: true.
 - Asigna expenseCategory ("Logística", "Eventos", "Administrativo", "Protocolo", "Imprevistos") y expenseDescription con el concepto detallado del gasto.
 
@@ -2108,9 +2109,14 @@ function fallbackParseWhatsApp(
 
     for (const mk of monthKeywords) {
       if (cleanBlock.includes(mk.key)) {
-        if (isLateFeeMentioned) {
+        const hasSpecificMulta = new RegExp(`multa(s)?\\s+(de\\s+)?${mk.key}|${mk.key}\\s+multa(s)?`, 'i').test(cleanBlock);
+        const matchesCount = (cleanBlock.match(new RegExp(`\\b${mk.key}\\b`, 'gi')) || []).length;
+
+        if (hasSpecificMulta) {
           targetList.push({ type: 'late_fee', id: mk.id, label: `Multa de ${mk.label}` });
-        } else {
+        }
+
+        if (!hasSpecificMulta || matchesCount > 1 || new RegExp(`(mensualidad|abono|cuota)\\s+(de\\s+)?${mk.key}`, 'i').test(cleanBlock)) {
           targetList.push({ type: 'month', id: mk.id, label: mk.label });
         }
       }
@@ -2222,12 +2228,13 @@ REGLAS CRÍTICAS DE EXTRACCIÓN Y RECONOCIMIENTO:
 6. METADATOS Y FECHAS DE WHATSAPP:
 - Si el mensaje incluye metadatos de WhatsApp (ej: "[5/8/2026, 17:28] Pedro Acosta: ..."), extrae la fecha (5/8/2026 -> paymentDate: "2026-08-05") e IGNORE el nombre del remitente del encabezado para la coincidencia del alumno que pagó.
 
-7. RECONOCIMIENTO OBLIGATORIO DE MULTAS / MORAS VS MENSUALIDADES (ALTAMENTE CRÍTICO):
-- Si el mensaje incluye la palabra "multa", "multas", "atraso", "mora", "penalidad", "sancion" o similar (Ej: "Multa de junio y multa de julio", "pago multa de mayo", "multa de junio $2"), DEBES asignar targetType: "late_fee".
-- NUNCA clasifiques un pago de multa como mensualidad ("month"). Si dice "multa de junio", el concepto en selectedConcepts DEBE SER "late_fee:2026-06", NUNCA "month:2026-06".
-- Si menciona varias multas (Ej: "Multa de junio y multa de julio"), selectedConcepts DEBE SER ["late_fee:2026-06", "late_fee:2026-07"], targetType: "late_fee", targetId: "2026-06", y targetLabel: "Multas de Junio y Julio 2026".
-- Solo si el texto dice "mensualidad de junio" o "junio" sin la palabra multa, es "month:2026-06".
-- Si el pago incluye múltiples conceptos (Ej: "Multa de Mayo 3$ + Mensualidad Mayo 14$"), utiliza \`selectedConcepts\` (ej: ["late_fee:2026-05", "month:2026-05"]) Y ADEMÁS llena \`conceptAllocationsUSD\` especificando los dólares asignados a cada uno.
+7. RECONOCIMIENTO INDIVIDUAL DE CONCEPTOS Y MULTAS (ALTAMENTE CRÍTICO):
+- Analiza CADA mes mencionado en el mensaje de forma INDIVIDUAL e INDEPENDIENTE:
+  * Un mes es Mensualidad ("month:YYYY-MM") si se menciona solo, o como abono, o como mensualidad (Ej: "Julio", "abono Agosto", "6$ abono Agosto", "mensualidad de mayo").
+  * Un mes es Multa/Mora ("late_fee:YYYY-MM") ÚNICAMENTE si la palabra "multa", "multas", "atraso", "mora" o "penalidad" acompaña directamente a ESE mes específico (Ej: "multa de julio", "multas de junio").
+  * NUNCA clasifiques como "late_fee" a un mes que no dice multa (ej: "6$ abono Agosto" o "Julio") simplemente porque otro mes en la misma frase decía la palabra "multa".
+  * Si un mismo mensaje combina la mensualidad y la multa de un mismo mes (Ej: "Julio + Multa de Julio"), DEBES incluir AMBOS conceptos en \`selectedConcepts\`: ["month:2026-07", "late_fee:2026-07"].
+  * Si el mensaje especifica múltiples conceptos (Ej: "Julio + Multa de Julio + 6$ abono Agosto"), DEBES incluir todos los conceptos en \`selectedConcepts\` (ej: ["month:2026-07", "late_fee:2026-07", "month:2026-08"]) Y ADEMÁS llenar \`conceptAllocationsUSD\` especificando los dólares asignados a cada uno (ej: month:2026-07 = $12, late_fee:2026-07 = $2, month:2026-08 = $6).
 - Si el texto describe un egreso, gasto o salida de dinero realizada por el comité/promoción (ej: "Gasto: 50$ en impresiones", "Egreso 1500 bs pago de transporte ref 4892", "Se pagaron 20$ a fotógrafo", "Gastados 4500 bs en decoración", "Pago de servicio de sonido $100"), establece isExpense: true.
 - Asigna expenseCategory ("Logística", "Eventos", "Administrativo", "Protocolo", "Imprevistos") y expenseDescription con el concepto detallado del gasto.
 
