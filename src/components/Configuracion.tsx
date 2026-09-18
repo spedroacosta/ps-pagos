@@ -2965,29 +2965,14 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
 
                             <div>
                               <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                                Hora fija del respaldo
+                                Hora exacta del respaldo
                               </label>
-                              <select
+                              <input
+                                type="time"
                                 value={driveBackupTime}
                                 onChange={(e) => setDriveBackupTime(e.target.value)}
                                 className="w-full bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold px-2.5 py-1.5 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-                              >
-                                <option value="00:00">12:00 AM (Medianoche)</option>
-                                <option value="01:00">01:00 AM</option>
-                                <option value="02:00">02:00 AM</option>
-                                <option value="03:00">03:00 AM (Madrugada)</option>
-                                <option value="04:00">04:00 AM</option>
-                                <option value="05:00">05:00 AM</option>
-                                <option value="06:00">06:00 AM (Mañana)</option>
-                                <option value="07:00">07:00 AM</option>
-                                <option value="08:00">08:00 AM</option>
-                                <option value="09:00">09:00 AM</option>
-                                <option value="12:00">12:00 PM (Mediodía)</option>
-                                <option value="15:00">03:00 PM (Tarde)</option>
-                                <option value="18:00">06:00 PM (Tarde/Noche)</option>
-                                <option value="21:00">09:00 PM (Noche)</option>
-                                <option value="23:00">11:00 PM</option>
-                              </select>
+                              />
                             </div>
                           </div>
 
