@@ -235,7 +235,9 @@ export const BuscadorIntegrante: React.FC<BuscadorIntegranteProps> = ({
               </span>
               <div className="flex items-baseline justify-between text-xs">
                 <span className="text-slate-600">Cuota fijada:</span>
-                <span className="font-bold text-slate-900">${currentMonthConfig.feeUSD}.00 USD</span>
+                <span className="font-bold text-slate-900">
+                  ${currentMonthConfig.feeUSD_direct || currentMonthConfig.feeUSD || 12}.00 $ / ${currentMonthConfig.feeUSD_bcv || currentMonthConfig.feeUSD_direct || 12}.00 BCV
+                </span>
               </div>
               <div className="flex items-baseline justify-between text-xs">
                 <span className="text-slate-600">Abonado al mes:</span>
@@ -250,12 +252,12 @@ export const BuscadorIntegrante: React.FC<BuscadorIntegranteProps> = ({
                 )}
                 {currentMonthStatus?.status === 'parcial' && (
                   <span className="font-bold text-amber-800">
-                    ⚠️ PARCIAL (Resta ${(currentMonthConfig.feeUSD - currentMonthStatus.paidUSD).toFixed(2)})
+                    ⚠️ PARCIAL (Resta ${(currentMonthStatus.owedUSD || 0).toFixed(2)} $ / ${(currentMonthStatus.owedUSD_bcv || 0).toFixed(2)} BCV)
                   </span>
                 )}
                 {currentMonthStatus?.status === 'deuda' && (
                   <span className="font-bold text-red-700">
-                    ❌ DEBE ${currentMonthConfig.feeUSD}.00 USD
+                    ❌ DEBE ${currentMonthConfig.feeUSD_direct || currentMonthConfig.feeUSD || 12}.00 $ (o ${currentMonthConfig.feeUSD_bcv || currentMonthConfig.feeUSD_direct || 12}.00 a BCV)
                   </span>
                 )}
               </div>
@@ -271,8 +273,11 @@ export const BuscadorIntegrante: React.FC<BuscadorIntegranteProps> = ({
               </div>
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                 <span className="text-[9px] uppercase font-bold text-slate-500 block">Deuda Acumulada</span>
-                <span className="text-base font-bold text-red-600 mt-0.5 block">
+                <span className="text-sm font-bold text-red-600 mt-0.5 block">
                   {formatUSD(solvencySummary.totalOwedUSD)}
+                </span>
+                <span className="text-[10px] font-bold text-red-500/80 block">
+                  (o ${(solvencySummary.totalOwedUSD_bcv || 0).toFixed(2)} a BCV)
                 </span>
               </div>
             </div>
@@ -365,17 +370,27 @@ export const BuscadorIntegrante: React.FC<BuscadorIntegranteProps> = ({
                           : 'bg-red-50 border-red-200 text-red-900'
                       }`}
                     >
-                      <div className="font-bold flex justify-between">
+                      <div className="font-bold flex justify-between gap-1">
                         <span className={isFuture && st.status !== 'solvente' ? 'text-slate-400 font-medium' : ''}>{m.name}</span>
-                        <span className={isFuture && st.status !== 'solvente' ? 'text-slate-400 font-medium' : ''}>${m.feeUSD}</span>
+                        <span className={`text-[11px] ${isFuture && st.status !== 'solvente' ? 'text-slate-400 font-medium' : ''}`}>
+                          ${m.feeUSD_direct || m.feeUSD || 12} / ${m.feeUSD_bcv || m.feeUSD_direct || 12} BCV
+                        </span>
                       </div>
                       <div className={`text-[10px] ${isFuture && st.status !== 'solvente' ? 'text-slate-400 font-medium' : ''}`}>
                         Abonado: <strong>${st.paidUSD.toFixed(2)}</strong>
                       </div>
                       <div className="text-[9px] uppercase font-bold pt-1 border-t border-slate-200/60">
                         {st.status === 'solvente' && '✅ Solvente'}
-                        {st.status === 'parcial' && (isFuture ? `⚪ Parcial ($${st.paidUSD.toFixed(2)})` : `⚠️ Parcial ($${st.paidUSD.toFixed(2)})`)}
-                        {st.status === 'deuda' && (isFuture ? '⚪ Pendiente' : '❌ Pendiente')}
+                        {st.status === 'parcial' && (
+                          isFuture
+                            ? `⚪ Parcial (Resta $${st.owedUSD.toFixed(2)} / $${(st.owedUSD_bcv || 0).toFixed(2)} BCV)`
+                            : `⚠️ Parcial (Resta $${st.owedUSD.toFixed(2)} / $${(st.owedUSD_bcv || 0).toFixed(2)} BCV)`
+                        )}
+                        {st.status === 'deuda' && (
+                          isFuture
+                            ? `⚪ Pendiente ($${m.feeUSD_direct || m.feeUSD} / $${m.feeUSD_bcv || m.feeUSD} BCV)`
+                            : `❌ Debe $${st.owedUSD} ($${(st.owedUSD_bcv || 0)} BCV)`
+                        )}
                       </div>
                     </div>
                   );
@@ -392,6 +407,8 @@ export const BuscadorIntegrante: React.FC<BuscadorIntegranteProps> = ({
                     {quotas.map((q) => {
                       const st = solvencySummary.quotasStatus[q.id];
                       if (!st) return null;
+                      const feeDirect = q.feeUSD_direct || q.feeUSD || 0;
+                      const feeBcv = q.feeUSD_bcv || feeDirect;
                       return (
                         <div
                           key={q.id}
@@ -399,12 +416,16 @@ export const BuscadorIntegrante: React.FC<BuscadorIntegranteProps> = ({
                         >
                           <div>
                             <span className="font-bold text-slate-900 block">{q.title}</span>
-                            <span className="text-[10px] text-slate-500">Monto: ${q.feeUSD} USD</span>
+                            <span className="text-[10px] text-slate-500">
+                              Monto: ${feeDirect} $ / ${feeBcv} BCV
+                            </span>
                           </div>
                           <div className="text-right">
                             <span className="font-bold text-emerald-700 block">${st.paidUSD.toFixed(2)} USD</span>
                             <span className="text-[10px] font-bold">
-                              {st.status === 'solvente' ? '✅ SOLVENTE' : '❌ PENDIENTE'}
+                              {st.status === 'solvente'
+                                ? '✅ SOLVENTE'
+                                : `❌ PENDIENTE ($${st.owedUSD.toFixed(2)} / $${(st.owedUSD_bcv || 0).toFixed(2)} BCV)`}
                             </span>
                           </div>
                         </div>

@@ -126,17 +126,24 @@ export interface MemberSolvencySummary {
   member: Member;
   monthsStatus: Record<string, {
     feeUSD: number;
+    feeUSD_direct?: number;
+    feeUSD_bcv?: number;
     paidUSD: number;
     owedUSD: number;
+    owedUSD_bcv?: number;
     status: 'solvente' | 'parcial' | 'deuda' | 'na';
   }>;
   quotasStatus: Record<string, {
     feeUSD: number;
+    feeUSD_direct?: number;
+    feeUSD_bcv?: number;
     paidUSD: number;
     owedUSD: number;
+    owedUSD_bcv?: number;
     status: 'solvente' | 'parcial' | 'deuda' | 'na';
   }>;
   totalOwedUSD: number;
+  totalOwedUSD_bcv?: number;
   totalPaidUSD: number;
   isUpToDate: boolean;
   lateFeesSummary?: {

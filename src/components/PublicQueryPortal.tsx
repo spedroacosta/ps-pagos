@@ -289,9 +289,16 @@ export const PublicQueryPortal: React.FC<PublicQueryPortalProps> = ({
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-xs text-slate-600">Saldo Pendiente:</span>
-                    <span className={`font-extrabold text-sm ${solvencySummary.totalOwedUSD > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
-                      {formatUSD(solvencySummary.totalOwedUSD)}
-                    </span>
+                    <div className="text-right">
+                      <span className={`font-extrabold text-sm block ${solvencySummary.totalOwedUSD > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                        {formatUSD(solvencySummary.totalOwedUSD)}
+                      </span>
+                      {solvencySummary.totalOwedUSD > 0 && (
+                        <span className="text-[10px] font-extrabold text-red-500/80 block">
+                          (o ${(solvencySummary.totalOwedUSD_bcv || 0).toFixed(2)} a BCV)
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -371,9 +378,11 @@ export const PublicQueryPortal: React.FC<PublicQueryPortalProps> = ({
                           : 'bg-red-50/70 border-red-200 text-red-900'
                       }`}
                     >
-                      <div className="font-extrabold flex justify-between">
+                      <div className="font-extrabold flex justify-between gap-1">
                         <span className={isFuture && statusObj.status !== 'solvente' ? 'text-slate-400 font-medium' : ''}>{m.name}</span>
-                        <span className={isFuture && statusObj.status !== 'solvente' ? 'text-slate-400 font-medium' : ''}>${m.feeUSD}</span>
+                        <span className={`text-[11px] ${isFuture && statusObj.status !== 'solvente' ? 'text-slate-400 font-medium' : ''}`}>
+                          ${m.feeUSD_direct || m.feeUSD || 12} / ${m.feeUSD_bcv || m.feeUSD_direct || 12} BCV
+                        </span>
                       </div>
                       <div className="text-[10px] flex justify-between items-baseline pt-1 border-t border-slate-200/50">
                         <span className={`opacity-80 ${isFuture && statusObj.status !== 'solvente' ? 'text-slate-400' : ''}`}>Abonado:</span>
@@ -385,16 +394,16 @@ export const PublicQueryPortal: React.FC<PublicQueryPortalProps> = ({
                         )}
                         {statusObj.status === 'parcial' && (
                           isFuture ? (
-                            <span className="text-slate-400">⚪ Resta ${statusObj.owedUSD.toFixed(2)}</span>
+                            <span className="text-slate-400">⚪ Resta ${statusObj.owedUSD.toFixed(2)} / ${(statusObj.owedUSD_bcv || 0).toFixed(2)} BCV</span>
                           ) : (
-                            <span className="text-amber-800">⚠️ Resta ${statusObj.owedUSD.toFixed(2)}</span>
+                            <span className="text-amber-800">⚠️ Resta ${statusObj.owedUSD.toFixed(2)} / ${(statusObj.owedUSD_bcv || 0).toFixed(2)} BCV</span>
                           )
                         )}
                         {statusObj.status === 'deuda' && (
                           isFuture ? (
-                            <span className="text-slate-400">⚪ Pendiente</span>
+                            <span className="text-slate-400">⚪ Pendiente (${m.feeUSD_direct || m.feeUSD} / ${m.feeUSD_bcv || m.feeUSD} BCV)</span>
                           ) : (
-                            <span className="text-red-700">❌ Pendiente</span>
+                            <span className="text-red-700">❌ Debe ${statusObj.owedUSD} (${(statusObj.owedUSD_bcv || 0)} BCV)</span>
                           )
                         )}
                       </div>
@@ -411,6 +420,8 @@ export const PublicQueryPortal: React.FC<PublicQueryPortalProps> = ({
                     {queryResult.quotas.map((q) => {
                       const statusObj = solvencySummary.quotasStatus[q.id];
                       if (!statusObj) return null;
+                      const feeDirect = q.feeUSD_direct || q.feeUSD || 0;
+                      const feeBcv = q.feeUSD_bcv || feeDirect;
                       return (
                         <div
                           key={q.id}
@@ -423,11 +434,13 @@ export const PublicQueryPortal: React.FC<PublicQueryPortalProps> = ({
                           <div>
                             <span className="font-extrabold block">{q.title}</span>
                             <span className="text-[10px] opacity-80">
-                              Fijado: ${q.feeUSD} | Pagado: ${statusObj.paidUSD}
+                              Fijado: ${feeDirect} $ / ${feeBcv} BCV | Pagado: ${statusObj.paidUSD}
                             </span>
                           </div>
                           <span className="font-bold text-[11px]">
-                            {statusObj.status === 'solvente' ? '✅ Solventado' : `❌ Pendiente $${statusObj.owedUSD}`}
+                            {statusObj.status === 'solvente'
+                              ? '✅ Solventado'
+                              : `❌ Pendiente $${statusObj.owedUSD} ($${(statusObj.owedUSD_bcv || 0)} BCV)`}
                           </span>
                         </div>
                       );

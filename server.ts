@@ -3045,7 +3045,13 @@ async function executeSingleTenantDriveBackup(tenantId: string, isForce: boolean
       }
     }
 
-    if (frequency !== 'every_12_hours') {
+    if (frequency === 'every_12_hours') {
+      const nowMs = Date.now();
+      const lastMs = (gd as any).lastAutoBackupTimestamp ? new Date((gd as any).lastAutoBackupTimestamp).getTime() : 0;
+      if (nowMs - lastMs < 12 * 3600 * 1000) {
+        return { success: false, error: 'Respaldo de cada 12 horas ya realizado recientemente.' };
+      }
+    } else {
       if (timeStr < targetTime) {
         return { success: false, error: `Hora programada (${targetTime}) no ha llegado aún.` };
       }
@@ -3090,6 +3096,7 @@ async function executeSingleTenantDriveBackup(tenantId: string, isForce: boolean
     });
 
     if (file.data.id) {
+      (gd as any).lastAutoBackupTimestamp = new Date().toISOString();
       if (!isForce) {
         gd.lastAutoBackupDate = todayStr;
         gd.lastAutoBackupStatus = `Éxito (Automático): Guardado el ${todayStr} a las ${timeStr}`;
@@ -3104,7 +3111,16 @@ async function executeSingleTenantDriveBackup(tenantId: string, isForce: boolean
     }
     throw new Error('No se recibió id de archivo de Google Drive');
   } catch (err: any) {
-    const errMsg = err.message || 'Error desconocido';
+    let errMsg = err.message || 'Error desconocido';
+    if (
+      errMsg.includes('invalid authentication credentials') ||
+      errMsg.includes('OAuth 2 access token') ||
+      errMsg.includes('invalid_grant') ||
+      errMsg.includes('invalid_token') ||
+      err.code === 401
+    ) {
+      errMsg = 'Las credenciales de Google Drive han expirado. Haz clic en "Desconectar" y vuelve a "Vincular Google Drive" para renovar la autorización.';
+    }
     gd.lastAutoBackupStatus = `Error el ${todayStr} (${timeStr}): ${errMsg}`;
     gd.updatedAt = new Date().toISOString();
     config.googleDrive = gd;
@@ -3835,7 +3851,7 @@ async function startServer() {
   app.post('/api/tenant/google-drive-auth', express.json(), async (req, res) => {
     try {
       const tenantId = (req.headers['x-tenant-id'] as string) || req.body.tenantId || 'original';
-      const { code, accessToken, refreshToken, autoBackupEnabled, userEmail } = req.body;
+      const { code, accessToken, refreshToken, autoBackupEnabled, backupFrequency, backupTime, userEmail } = req.body;
 
       let finalAccessToken = accessToken || '';
       let finalRefreshToken = refreshToken || '';
@@ -3863,8 +3879,8 @@ async function startServer() {
         accessToken: finalAccessToken || config.googleDrive?.accessToken || '',
         refreshToken: finalRefreshToken || config.googleDrive?.refreshToken || '',
         autoBackupEnabled: autoBackupEnabled !== false,
-        backupFrequency: config.googleDrive?.backupFrequency || 'daily',
-        backupTime: config.googleDrive?.backupTime || '03:00',
+        backupFrequency: backupFrequency || config.googleDrive?.backupFrequency || 'daily',
+        backupTime: backupTime || config.googleDrive?.backupTime || '03:00',
         lastAutoBackupDate: config.googleDrive?.lastAutoBackupDate || '',
         lastAutoBackupStatus: config.googleDrive?.lastAutoBackupStatus || '',
         userEmail: userEmail || config.googleDrive?.userEmail || '',

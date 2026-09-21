@@ -499,9 +499,9 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
 
   const fetchDriveStatus = useCallback(async () => {
     try {
-      const res = await fetch('/api/tenant/google-drive-status', {
-        headers: { ...getTenantHeaders() }
-      });
+      const headers = { ...getTenantHeaders() };
+      if (tenantId) headers['x-tenant-id'] = tenantId;
+      const res = await fetch('/api/tenant/google-drive-status', { headers });
       const data = await res.json();
       if (data.success) {
         setServerDriveStatus({
@@ -532,9 +532,12 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
       const newFreq = freq || driveFrequency;
       const newTime = time || driveBackupTime;
 
+      const headers = { 'Content-Type': 'application/json', ...getTenantHeaders() };
+      if (tenantId) headers['x-tenant-id'] = tenantId;
+
       const res = await fetch('/api/tenant/google-drive-config', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getTenantHeaders() },
+        headers,
         body: JSON.stringify({
           autoBackupEnabled: newEnabled,
           backupFrequency: newFreq,
@@ -544,7 +547,7 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
       const data = await res.json();
       if (data.success) {
         await fetchDriveStatus();
-        alert('✅ ¡Configuración de respaldo automático actualizada exitosamente!');
+        alert('✅ ¡Configuración de respaldo automático guardada exitosamente!');
       } else {
         alert('Error guardando configuración: ' + (data.error || 'Desconocido'));
       }
@@ -558,9 +561,12 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
   const handleTriggerServerDriveBackup = async () => {
     try {
       setIsDriveBackingUp(true);
+      const headers = { 'Content-Type': 'application/json', ...getTenantHeaders() };
+      if (tenantId) headers['x-tenant-id'] = tenantId;
+
       const res = await fetch('/api/tenant/google-drive-trigger', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getTenantHeaders() }
+        headers
       });
       const data = await res.json();
       if (data.success) {
@@ -573,6 +579,77 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
       alert('Error de conexión: ' + err.message);
     } finally {
       setIsDriveBackingUp(false);
+    }
+  };
+
+  const handleConnectGoogleDrive = () => {
+    if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+      alert('El script de Google no se ha cargado. Por favor, recarga la página. Si estás en la vista previa, intenta abrir la app en una nueva pestaña.');
+      return;
+    }
+
+    try {
+      const codeClient = google.accounts.oauth2.initCodeClient({
+        client_id: "753906353358-ld8k47do0qkqfsnmidk4t50ojrbaihre.apps.googleusercontent.com",
+        scope: 'https://www.googleapis.com/auth/drive.file',
+        ux_mode: 'popup',
+        callback: async (response: any) => {
+          if (response.code) {
+            try {
+              const headers = { 'Content-Type': 'application/json', ...getTenantHeaders() };
+              if (tenantId) headers['x-tenant-id'] = tenantId;
+
+              const res = await fetch('/api/tenant/google-drive-auth', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                  code: response.code,
+                  autoBackupEnabled: driveAutoEnabled,
+                  backupFrequency: driveFrequency,
+                  backupTime: driveBackupTime
+                })
+              });
+              const data = await res.json();
+              if (data.success) {
+                alert(`🎉 ¡Vinculación Permanente de Google Drive Exitosa!\n\nTu cuenta ha quedado registrada. Las copias de seguridad de esta promoción se guardarán de forma 100% automática en tu Google Drive a las ${driveBackupTime}.`);
+                fetchDriveStatus();
+              } else {
+                alert('Error al guardar credenciales en servidor: ' + (data.error || 'Desconocido'));
+              }
+            } catch (err: any) {
+              alert('Error de conexión con servidor: ' + err.message);
+            }
+          }
+        }
+      });
+      codeClient.requestCode();
+    } catch (codeErr) {
+      const tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: "753906353358-ld8k47do0qkqfsnmidk4t50ojrbaihre.apps.googleusercontent.com",
+        scope: 'https://www.googleapis.com/auth/drive.file',
+        prompt: 'consent',
+        callback: async (tokenResponse: any) => {
+          if (tokenResponse && tokenResponse.access_token) {
+            localStorage.setItem('driveToken', tokenResponse.access_token);
+            const headers = { 'Content-Type': 'application/json', ...getTenantHeaders() };
+            if (tenantId) headers['x-tenant-id'] = tenantId;
+
+            await fetch('/api/tenant/google-drive-auth', {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                accessToken: tokenResponse.access_token,
+                autoBackupEnabled: driveAutoEnabled,
+                backupFrequency: driveFrequency,
+                backupTime: driveBackupTime
+              })
+            });
+            fetchDriveStatus();
+            alert('🎉 ¡Conectado exitosamente con Google Drive!');
+          }
+        },
+      });
+      tokenClient.requestAccessToken({ prompt: 'consent' });
     }
   };
 
@@ -2897,9 +2974,9 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
                   <span>Descargar Copia de Seguridad Local (.json)</span>
                 </button>
 
-                {/* Google Drive Refresh Token Connection & Schedule Config */}
+                {/* Google Drive Connection & Schedule Config */}
                 {serverDriveStatus?.isConnected ? (
-                  <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-4 text-xs space-y-3.5">
+                  <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-4 text-xs space-y-3.5 shadow-2xs">
                     <div className="flex items-center justify-between pb-2 border-b border-emerald-200/60">
                       <div className="flex items-center space-x-2">
                         <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -2911,9 +2988,11 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
                         type="button"
                         onClick={async () => {
                           if (confirm('¿Deseas desvincular la cuenta de Google Drive de esta promoción?')) {
+                            const headers = { ...getTenantHeaders() };
+                            if (tenantId) headers['x-tenant-id'] = tenantId;
                             await fetch('/api/tenant/google-drive-disconnect', {
                               method: 'POST',
-                              headers: { ...getTenantHeaders() }
+                              headers
                             });
                             localStorage.removeItem('driveToken');
                             fetchDriveStatus();
@@ -2933,28 +3012,32 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
                             type="checkbox"
                             checked={driveAutoEnabled}
                             onChange={(e) => {
-                              setDriveAutoEnabled(e.target.checked);
-                              handleSaveDriveConfig(e.target.checked, driveFrequency, driveBackupTime);
+                              const checked = e.target.checked;
+                              setDriveAutoEnabled(checked);
+                              handleSaveDriveConfig(checked, driveFrequency, driveBackupTime);
                             }}
                             className="w-4 h-4 text-emerald-600 rounded border-emerald-300 focus:ring-emerald-500 cursor-pointer"
                           />
-                          <span>Activar Respaldo Automático en Google Drive</span>
+                          <span>Activar Respaldo Automático Periódico</span>
                         </label>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${driveAutoEnabled ? 'bg-emerald-200 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${driveAutoEnabled ? 'bg-emerald-200 text-emerald-900' : 'bg-slate-200 text-slate-700'}`}>
                           {driveAutoEnabled ? 'AUTOMÁTICO ACTIVO' : 'PAUSADO'}
                         </span>
                       </div>
 
                       {driveAutoEnabled && (
-                        <div className="bg-white/80 border border-emerald-100 rounded-xl p-3 space-y-3 shadow-2xs">
+                        <div className="bg-white border border-emerald-200/80 rounded-xl p-3 space-y-3 shadow-2xs">
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
                               <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                                Periodicidad
+                                Frecuencia del respaldo
                               </label>
                               <select
                                 value={driveFrequency}
-                                onChange={(e) => setDriveFrequency(e.target.value as any)}
+                                onChange={(e) => {
+                                  const val = e.target.value as any;
+                                  setDriveFrequency(val);
+                                }}
                                 className="w-full bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold px-2.5 py-1.5 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
                               >
                                 <option value="daily">Diario (Todos los días)</option>
@@ -2965,40 +3048,67 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
 
                             <div>
                               <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                                Hora exacta del respaldo
+                                Hora exacta del respaldo (HH:MM)
                               </label>
                               <input
                                 type="time"
+                                step="60"
                                 value={driveBackupTime}
-                                onChange={(e) => setDriveBackupTime(e.target.value)}
-                                className="w-full bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold px-2.5 py-1.5 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                                onChange={(e) => {
+                                  setDriveBackupTime(e.target.value);
+                                }}
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold px-2.5 py-1.5 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer text-slate-900"
                               />
                             </div>
                           </div>
 
-                          <div className="flex justify-end pt-1">
+                          <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                            <span className="text-[10px] text-slate-500">
+                              💡 Puedes personalizar la hora y minutos exactos del guardado.
+                            </span>
                             <button
                               type="button"
                               onClick={() => handleSaveDriveConfig()}
                               disabled={isSavingDriveConfig}
-                              className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-[11px] px-3 py-1.5 rounded-lg transition-all cursor-pointer shadow-2xs"
+                              className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-[11px] px-3.5 py-1.5 rounded-lg transition-all cursor-pointer shadow-2xs flex items-center space-x-1"
                             >
-                              {isSavingDriveConfig ? 'Guardando...' : '💾 Guardar Horario de Respaldo'}
+                              <Check className="w-3.5 h-3.5" />
+                              <span>{isSavingDriveConfig ? 'Guardando...' : 'Guardar Horario y Frecuencia'}</span>
                             </button>
                           </div>
                         </div>
                       )}
 
-                      <div className="text-[11px] text-emerald-900 bg-emerald-100/60 rounded-lg p-2.5 space-y-1">
+                      <div className={`text-[11px] rounded-lg p-2.5 space-y-1.5 ${serverDriveStatus.lastAutoBackupStatus?.toLowerCase().includes('error') ? 'bg-amber-100/90 text-amber-950 border border-amber-300' : 'bg-emerald-100/60 text-emerald-900'}`}>
                         <p className="font-semibold">
-                          📌 <strong>Horario Programado:</strong> Se guardará automáticamente en Drive {driveFrequency === 'daily' ? 'todos los días' : driveFrequency === 'weekly' ? 'todos los lunes' : 'cada 12 horas'} a las <strong>{driveBackupTime}</strong>.
+                          📌 <strong>Horario Programado Activo:</strong> Se guardará automáticamente en Drive {driveFrequency === 'daily' ? 'todos los días' : driveFrequency === 'weekly' ? 'todos los lunes' : 'cada 12 horas'} a las <strong>{driveBackupTime}</strong>.
                         </p>
                         {serverDriveStatus.lastAutoBackupStatus ? (
-                          <p className="text-[10px] text-emerald-800 font-medium">
-                            <strong>Estado del servidor:</strong> {serverDriveStatus.lastAutoBackupStatus}
-                          </p>
+                          <div className="text-[10px] font-medium space-y-1">
+                            <p>
+                              <strong>Estado del servidor:</strong> {serverDriveStatus.lastAutoBackupStatus}
+                            </p>
+                            {serverDriveStatus.lastAutoBackupStatus.toLowerCase().includes('error') && (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const headers = { ...getTenantHeaders() };
+                                  if (tenantId) headers['x-tenant-id'] = tenantId;
+                                  await fetch('/api/tenant/google-drive-disconnect', {
+                                    method: 'POST',
+                                    headers
+                                  });
+                                  localStorage.removeItem('driveToken');
+                                  fetchDriveStatus();
+                                }}
+                                className="inline-flex items-center gap-1 font-bold text-amber-900 underline hover:text-amber-700 cursor-pointer text-[10px] mt-0.5"
+                              >
+                                🔄 Reautorizar / Renovar Permiso de Google Drive
+                              </button>
+                            )}
+                          </div>
                         ) : serverDriveStatus.lastAutoBackupDate ? (
-                          <p className="text-[10px] text-emerald-800 font-medium">
+                          <p className="text-[10px] font-medium">
                             <strong>Última ejecución:</strong> {serverDriveStatus.lastAutoBackupDate}
                           </p>
                         ) : null}
@@ -3011,84 +3121,56 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
                         className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 px-3 rounded-lg flex items-center justify-center space-x-1.5 shadow-2xs transition-all cursor-pointer disabled:opacity-50"
                       >
                         <Upload className="w-3.5 h-3.5" />
-                        <span>{isDriveBackingUp ? 'Ejecutando Respaldo...' : '⚡ Ejecutar Respaldo Automático en Google Drive Ahora'}</span>
+                        <span>{isDriveBackingUp ? 'Ejecutando Respaldo en la Nube...' : '⚡ Ejecutar Respaldo en Google Drive Ahora'}</span>
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
-                        alert('El script de Google no se ha cargado. Por favor, recarga la página. Si estás en la vista previa, intenta abrir la app en una nueva pestaña.');
-                        return;
-                      }
+                  <div className="bg-blue-50/60 border border-blue-200 rounded-xl p-4 text-xs space-y-3">
+                    <div className="space-y-1">
+                      <span className="font-extrabold text-blue-950 block text-xs">
+                        ☁️ Vincular Google Drive para Respaldos Automáticos
+                      </span>
+                      <p className="text-[11px] text-slate-600 leading-relaxed">
+                        Configura la hora y minutos en que deseas que el servidor guarde la copia de seguridad de tu promoción directamente en tu Google Drive.
+                      </p>
+                    </div>
 
-                      // Try Code Client flow for offline refresh_token
-                      try {
-                        const codeClient = google.accounts.oauth2.initCodeClient({
-                          client_id: "753906353358-ld8k47do0qkqfsnmidk4t50ojrbaihre.apps.googleusercontent.com",
-                          scope: 'https://www.googleapis.com/auth/drive.file',
-                          ux_mode: 'popup',
-                          callback: async (response: any) => {
-                            if (response.code) {
-                              try {
-                                const res = await fetch('/api/tenant/google-drive-auth', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json', ...getTenantHeaders() },
-                                  body: JSON.stringify({ code: response.code, autoBackupEnabled: true })
-                                });
-                                const data = await res.json();
-                                if (data.success) {
-                                  alert('🎉 ¡Vinculación Permanente de Google Drive Exitosa!\n\nTu cuenta ha quedado registrada. Las copias de seguridad de esta promoción se guardarán de forma 100% automática en tu Google Drive a la hora configurada.');
-                                  fetchDriveStatus();
-                                } else {
-                                  alert('Error al guardar credenciales en servidor: ' + (data.error || 'Desconocido'));
-                                }
-                              } catch (err: any) {
-                                alert('Error de conexión con servidor: ' + err.message);
-                              }
-                            }
-                          }
-                        });
-                        codeClient.requestCode();
-                      } catch (codeErr) {
-                        // Fallback to token client
-                        const tokenClient = google.accounts.oauth2.initTokenClient({
-                          client_id: "753906353358-ld8k47do0qkqfsnmidk4t50ojrbaihre.apps.googleusercontent.com",
-                          scope: 'https://www.googleapis.com/auth/drive.file',
-                          callback: async (tokenResponse: any) => {
-                            if (tokenResponse && tokenResponse.access_token) {
-                              localStorage.setItem('driveToken', tokenResponse.access_token);
-                              await fetch('/api/tenant/google-drive-auth', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json', ...getTenantHeaders() },
-                                body: JSON.stringify({ accessToken: tokenResponse.access_token, autoBackupEnabled: true })
-                              });
-                              fetchDriveStatus();
-                              alert('¡Conectado exitosamente con Google Drive!');
-                            }
-                          },
-                        });
-                        tokenClient.requestAccessToken();
-                      }
-                    }}
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-xs transition-all cursor-pointer w-full"
-                  >
-                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12.01 1.493l-4.47 7.732h8.941l4.47-7.732h-8.94m-5.462 1.706L2.073 10.93l4.472 7.73 4.47-7.73-4.467-7.73zM18.442 12.637l-4.47 7.732H5.03l4.47-7.732h8.942z"/></svg>
-                    <span>Vincular Google Drive para Respaldos Automáticos</span>
-                  </button>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-white p-2.5 rounded-lg border border-blue-100">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Frecuencia</label>
+                        <select
+                          value={driveFrequency}
+                          onChange={(e) => setDriveFrequency(e.target.value as any)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded text-xs py-1 px-2 font-semibold"
+                        >
+                          <option value="daily">Diario</option>
+                          <option value="every_12_hours">Cada 12 horas</option>
+                          <option value="weekly">Semanal</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Hora deseada (HH:MM)</label>
+                        <input
+                          type="time"
+                          step="60"
+                          value={driveBackupTime}
+                          onChange={(e) => setDriveBackupTime(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded text-xs py-1 px-2 font-bold text-slate-900"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleConnectGoogleDrive}
+                      className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-xs transition-all cursor-pointer w-full"
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12.01 1.493l-4.47 7.732h8.941l4.47-7.732h-8.94m-5.462 1.706L2.073 10.93l4.472 7.73 4.47-7.73-4.467-7.73zM18.442 12.637l-4.47 7.732H5.03l4.47-7.732h8.942z"/></svg>
+                      <span>Vincular Cuenta de Google Drive</span>
+                    </button>
+                  </div>
                 )}
-
-                <button
-                  type="button"
-                  onClick={handleDriveBackup}
-                  disabled={isDriveBackingUp}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-xs transition-all cursor-pointer w-full disabled:opacity-50"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>{isDriveBackingUp ? 'Subiendo...' : 'Respaldar Ahora Manualmente en Google Drive'}</span>
-                </button>
               </div>
             </div>
 

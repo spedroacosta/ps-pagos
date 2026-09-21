@@ -150,19 +150,35 @@ export const ResumenSolvencia: React.FC<ResumenSolvenciaProps> = ({
         const st = s.monthsStatus[m.id];
         return sum + (st ? st.owedUSD : 0);
       }, 0);
+      const visibleMonthsOwed_bcv = visibleMonths.reduce((sum, m) => {
+        const st = s.monthsStatus[m.id];
+        return sum + (st ? (st.owedUSD_bcv || st.owedUSD) : 0);
+      }, 0);
+
       const quotasOwed = visibleQuotas.reduce((sum, q) => {
         const st = s.quotasStatus[q.id];
         return sum + (st ? st.owedUSD : 0);
       }, 0);
-      const visibleOwedUSD = visibleMonthsOwed + quotasOwed + (s.lateFeesSummary?.owedLateFeesUSD || 0);
+      const quotasOwed_bcv = visibleQuotas.reduce((sum, q) => {
+        const st = s.quotasStatus[q.id];
+        return sum + (st ? (st.owedUSD_bcv || st.owedUSD) : 0);
+      }, 0);
+
+      const lateFeesOwed = s.lateFeesSummary?.owedLateFeesUSD || 0;
+      const lateFeesOwed_bcv = (s.lateFeesSummary?.lateFeesCount || 0) * (lateFeeConfig?.feeUSD_bcv ?? 3);
+
+      const visibleOwedUSD = visibleMonthsOwed + quotasOwed + lateFeesOwed;
+      const visibleOwedUSD_bcv = visibleMonthsOwed_bcv + quotasOwed_bcv + lateFeesOwed_bcv;
+
       const isVisibleSolvent = visibleOwedUSD <= 0.01;
       return {
         ...s,
         visibleOwedUSD,
+        visibleOwedUSD_bcv,
         isVisibleSolvent,
       };
     });
-  }, [memberSummaries, visibleMonths, visibleQuotas]);
+  }, [memberSummaries, visibleMonths, visibleQuotas, lateFeeConfig]);
 
   // Filtered list
   const filteredSummaries = useMemo(() => {
@@ -198,6 +214,7 @@ export const ResumenSolvencia: React.FC<ResumenSolvenciaProps> = ({
   ).length;
   const percentSolvent = totalMembers > 0 ? Math.round((solventMembers / totalMembers) * 100) : 0;
   const totalCollectiveDebt = memberSummariesWithVisibleDebt.reduce((sum, s) => sum + s.visibleOwedUSD, 0);
+  const totalCollectiveDebt_bcv = memberSummariesWithVisibleDebt.reduce((sum, s) => sum + s.visibleOwedUSD_bcv, 0);
 
   // Expense Calculations
   const totalExpensesVES = useMemo(() => {
@@ -338,6 +355,11 @@ export const ResumenSolvencia: React.FC<ResumenSolvenciaProps> = ({
             <span className="text-xl font-bold text-red-600 mt-0.5 block">
               {formatUSD(totalCollectiveDebt)}
             </span>
+            {totalCollectiveDebt > 0 && (
+              <span className="text-[10px] font-bold text-red-500/80 block">
+                (o ${totalCollectiveDebt_bcv.toFixed(2)} a BCV)
+              </span>
+            )}
           </div>
           <div className="w-9 h-9 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center text-red-600">
             <AlertCircle className="w-4 h-4" />
@@ -790,6 +812,11 @@ export const ResumenSolvencia: React.FC<ResumenSolvenciaProps> = ({
                     <td className="px-3 py-2 text-right font-bold text-red-600 border-l border-slate-100">
                       <div className="flex flex-col items-end">
                         <span>${s.visibleOwedUSD.toFixed(2)}</span>
+                        {s.visibleOwedUSD > 0 && (
+                          <span className="text-[9px] text-red-500/80 font-bold block">
+                            (o ${s.visibleOwedUSD_bcv.toFixed(2)} BCV)
+                          </span>
+                        )}
                         {s.lateFeesSummary && s.lateFeesSummary.owedLateFeesUSD > 0 && (
                           <span className="text-[9px] text-rose-500 font-extrabold block" title={`${s.lateFeesSummary.lateFeesCount} multas por atraso`}>
                             (Inc. ${s.lateFeesSummary.owedLateFeesUSD.toFixed(2)} multas)

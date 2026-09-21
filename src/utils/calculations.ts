@@ -101,15 +101,18 @@ export function calculateMemberSolvency(
     );
 
     const feeUSD_direct = month.feeUSD_direct || month.feeUSD || 12;
+    const feeUSD_bcv = month.feeUSD_bcv || feeUSD_direct;
 
     let status: 'solvente' | 'parcial' | 'deuda' | 'na' = 'deuda';
     let paidUSD_display = 0;
     let owedUSD = 0;
+    let owedUSD_bcv = 0;
 
     if (feeUSD_direct === 0) {
       status = 'na';
       paidUSD_display = 0;
       owedUSD = 0;
+      owedUSD_bcv = 0;
     } else {
       let totalEffectivePaidUSD = directPaidUSD;
 
@@ -124,14 +127,17 @@ export function calculateMemberSolvency(
         status = 'solvente';
         paidUSD_display = feeUSD_direct;
         owedUSD = 0;
+        owedUSD_bcv = 0;
       } else if (totalEffectivePaidUSD > 0) {
         status = 'parcial';
         paidUSD_display = Math.round(totalEffectivePaidUSD * 100) / 100;
         owedUSD = Math.max(0, feeUSD_direct - paidUSD_display);
+        owedUSD_bcv = Math.round(owedUSD * (feeUSD_bcv / feeUSD_direct) * 100) / 100;
       } else {
         status = 'deuda';
         paidUSD_display = 0;
         owedUSD = feeUSD_direct;
+        owedUSD_bcv = feeUSD_bcv;
       }
     }
 
@@ -148,8 +154,11 @@ export function calculateMemberSolvency(
 
     monthsStatus[month.id] = {
       feeUSD: feeUSD_direct,
+      feeUSD_direct,
+      feeUSD_bcv,
       paidUSD: paidUSD_display,
       owedUSD,
+      owedUSD_bcv,
       status,
     };
   });
@@ -167,6 +176,7 @@ export function calculateMemberSolvency(
     let status: 'solvente' | 'parcial' | 'deuda' | 'na' = 'deuda';
     let paidUSD_display = 0;
     let owedUSD = 0;
+    let owedUSD_bcv = 0;
 
     if (feeUSD_direct === 0 && feeUSD_bcv === 0) {
       status = 'na';
@@ -177,14 +187,17 @@ export function calculateMemberSolvency(
         status = 'solvente';
         paidUSD_display = feeUSD_direct;
         owedUSD = 0;
+        owedUSD_bcv = 0;
       } else if (rawPaidUSD > 0) {
         status = 'parcial';
         paidUSD_display = Math.min(feeUSD_direct, Math.round(rawPaidUSD * 100) / 100);
         owedUSD = Math.max(0, feeUSD_direct - paidUSD_display);
+        owedUSD_bcv = feeUSD_direct > 0 ? Math.round(owedUSD * (feeUSD_bcv / feeUSD_direct) * 100) / 100 : feeUSD_bcv;
       } else {
         status = 'deuda';
         paidUSD_display = 0;
         owedUSD = feeUSD_direct;
+        owedUSD_bcv = feeUSD_bcv;
       }
     }
 
@@ -197,8 +210,11 @@ export function calculateMemberSolvency(
 
     quotasStatus[quota.id] = {
       feeUSD: feeUSD_direct,
+      feeUSD_direct,
+      feeUSD_bcv,
       paidUSD: paidUSD_display,
       owedUSD,
+      owedUSD_bcv,
       status,
     };
   });
@@ -407,6 +423,36 @@ export function calculateMemberSolvency(
     }
   }
 
+  // Calculate total BCV debt across months, quotas, and fines
+  let totalOwedUSD_bcv = 0;
+  months.forEach((month) => {
+    const isPastOrCurrentMonth =
+      month.year < currentYear ||
+      (month.year === currentYear && month.monthNumber <= currentMonthNum);
+    if (isPastOrCurrentMonth && monthsStatus[month.id]) {
+      totalOwedUSD_bcv += monthsStatus[month.id].owedUSD_bcv || 0;
+    }
+  });
+  quotas.forEach((quota) => {
+    const isPastOrCurrentQuota = !quota.date || new Date(quota.date) <= now;
+    if (isPastOrCurrentQuota && quotasStatus[quota.id]) {
+      totalOwedUSD_bcv += quotasStatus[quota.id].owedUSD_bcv || 0;
+    }
+  });
+  if (lateFeesSummary) {
+    if (lateFeesSummary.lateFeeMonths && lateFeesSummary.lateFeeMonths.length > 0) {
+      const bcvFee = lateFeeConfig?.feeUSD_bcv ?? 3;
+      totalOwedUSD_bcv += lateFeesSummary.lateFeeMonths.length * bcvFee;
+    }
+    if (lateFeesSummary.individualFinesDetails) {
+      lateFeesSummary.individualFinesDetails.forEach((d) => {
+        if (!d.isPaid) totalOwedUSD_bcv += d.owedUSD;
+      });
+    }
+  }
+
+  totalOwedUSD_bcv = Math.round(totalOwedUSD_bcv * 100) / 100;
+
   const isUpToDate = totalOwedUSD <= 0.01;
 
   return {
@@ -414,6 +460,7 @@ export function calculateMemberSolvency(
     monthsStatus,
     quotasStatus,
     totalOwedUSD,
+    totalOwedUSD_bcv,
     totalPaidUSD,
     isUpToDate,
     lateFeesSummary,
