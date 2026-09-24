@@ -131,6 +131,17 @@ export interface CustomPaymentMethod {
   currency: 'USD' | 'VES';
 }
 
+export interface EmailBackupConfig {
+  enabled: boolean;
+  frequency: 'daily' | 'weekly' | 'every_12_hours';
+  backupTime: string;
+  destinationEmail: string;
+  lastEmailBackupDate?: string;
+  lastEmailBackupTimestamp?: string;
+  lastEmailBackupStatus?: string;
+  updatedAt?: string;
+}
+
 export interface TenantConfig {
   smtp: SmtpConfig;
   telegram: TelegramConfig;
@@ -149,6 +160,7 @@ export interface TenantConfig {
     userEmail?: string;
     updatedAt?: string;
   };
+  emailBackup?: EmailBackupConfig;
   lateFee?: { 
     feeUSD_direct: number; 
     feeUSD_bcv: number; 
@@ -240,6 +252,14 @@ async function loadTenantConfig(tenantId: string): Promise<TenantConfig> {
       enabled: false,
     },
     telegramLogs: [],
+    emailBackup: {
+      enabled: true,
+      frequency: 'daily',
+      backupTime: '11:45',
+      destinationEmail: '',
+      lastEmailBackupDate: '',
+      lastEmailBackupStatus: '',
+    },
     lateFee: {
       feeUSD_direct: 2,
       feeUSD_bcv: 3,
@@ -3174,6 +3194,209 @@ async function runTenantDailyDriveBackups(): Promise<void> {
   }
 }
 
+// Single Tenant SMTP Email Backup Executor
+async function executeSingleTenantEmailBackup(
+  tenantId: string,
+  isForce: boolean = false
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const todayStr = getCaracasDateString();
+  const timeStr = getCaracasTimeString();
+
+  const config = await loadTenantConfig(tenantId);
+  const eb = config.emailBackup || {
+    enabled: true,
+    frequency: 'daily',
+    backupTime: '11:45',
+    destinationEmail: '',
+  };
+
+  if (!isForce) {
+    if (eb.enabled === false) {
+      return { success: false, error: 'El respaldo por correo está desactivado.' };
+    }
+
+    const frequency = eb.frequency || 'daily';
+    const targetTime = eb.backupTime || '11:45';
+
+    if (frequency === 'daily' && eb.lastEmailBackupDate === todayStr) {
+      return { success: false, error: 'El respaldo por correo ya fue realizado hoy.' };
+    }
+
+    if (frequency === 'weekly') {
+      const now = new Date();
+      if (now.getDay() !== 1 && eb.lastEmailBackupDate) {
+        const lastDate = new Date(eb.lastEmailBackupDate);
+        const diffDays = (now.getTime() - lastDate.getTime()) / (1000 * 3600 * 24);
+        if (diffDays < 6) {
+          return { success: false, error: 'Respaldo semanal por correo ya realizado recientemente.' };
+        }
+      }
+      if (eb.lastEmailBackupDate === todayStr) {
+        return { success: false, error: 'Respaldo semanal por correo ya realizado hoy.' };
+      }
+    }
+
+    if (frequency === 'every_12_hours') {
+      const nowMs = Date.now();
+      const lastMs = eb.lastEmailBackupTimestamp ? new Date(eb.lastEmailBackupTimestamp).getTime() : 0;
+      if (nowMs - lastMs < 12 * 3600 * 1000) {
+        return { success: false, error: 'Respaldo de cada 12 horas por correo ya realizado recientemente.' };
+      }
+    } else {
+      if (timeStr < targetTime) {
+        return { success: false, error: `Hora programada (${targetTime}) no ha llegado aún.` };
+      }
+    }
+  }
+
+  // Check SMTP configuration
+  const smtpCfg = config.smtp;
+  if (!smtpCfg || !smtpCfg.enabled || !smtpCfg.host || !smtpCfg.user || !smtpCfg.pass) {
+    const errMsg = 'Error: Servidor SMTP no configurado o inactivo. Configura el servidor SMTP en la sección "Notificaciones y Correos".';
+    eb.lastEmailBackupStatus = `Error el ${todayStr} (${timeStr}): SMTP no configurado`;
+    config.emailBackup = eb;
+    await saveTenantConfig(tenantId, config);
+    return { success: false, error: errMsg };
+  }
+
+  // Determine destination recipient
+  const tenant = await findTenant(tenantId);
+  const destinationEmail = eb.destinationEmail || tenant?.adminEmail || smtpCfg.fromEmail || smtpCfg.user;
+
+  if (!destinationEmail) {
+    const errMsg = 'Error: No hay dirección de correo destino especificada.';
+    eb.lastEmailBackupStatus = `Error el ${todayStr} (${timeStr}): Sin correo destino`;
+    config.emailBackup = eb;
+    await saveTenantConfig(tenantId, config);
+    return { success: false, error: errMsg };
+  }
+
+  try {
+    const tenantData = await loadServerData(tenantId);
+    const fileName = `control_pagos_respaldo_${tenantId}_${todayStr}.json`;
+    const jsonStr = JSON.stringify(tenantData, null, 2);
+
+    const transporter = nodemailer.createTransport({
+      host: smtpCfg.host,
+      port: smtpCfg.port || 587,
+      secure: smtpCfg.secure,
+      auth: {
+        user: smtpCfg.user,
+        pass: smtpCfg.pass,
+      },
+      tls: { rejectUnauthorized: false },
+      connectionTimeout: 15000,
+    });
+
+    const membersCount = tenantData.members?.length || 0;
+    const paymentsCount = tenantData.payments?.length || 0;
+    const dollarPurchasesCount = tenantData.dollarPurchases?.length || 0;
+    const expensesCount = tenantData.expenses?.length || 0;
+
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+        <div style="background-color: #0f172a; padding: 24px; text-align: center; color: #ffffff;">
+          <h1 style="margin: 0; font-size: 20px; font-weight: bold;">📦 Copia de Seguridad Automática</h1>
+          <p style="margin: 6px 0 0 0; font-size: 13px; color: #94a3b8;">Promoción ${tenantId.toUpperCase()} - ${todayStr} ${timeStr}</p>
+        </div>
+        
+        <div style="padding: 24px; color: #1e293b;">
+          <p style="font-size: 15px; margin-top: 0;">Estimado Administrador,</p>
+          <p style="font-size: 14px; color: #475569; line-height: 1.5;">Se ha generado y adjuntado automáticamente la copia de seguridad completa de la base de datos de tu promoción.</p>
+          
+          <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+              <tr>
+                <td style="padding: 6px 0; color: #64748b;">Promoción:</td>
+                <td style="padding: 6px 0; font-weight: bold; text-align: right;">${tenant?.name || tenantId}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; color: #64748b;">Fecha y Hora:</td>
+                <td style="padding: 6px 0; font-weight: bold; text-align: right;">${todayStr} - ${timeStr}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; color: #64748b;">Total Integrantes:</td>
+                <td style="padding: 6px 0; font-weight: bold; text-align: right;">${membersCount}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; color: #64748b;">Total Pagos Registrados:</td>
+                <td style="padding: 6px 0; font-weight: bold; color: #059669; text-align: right;">${paymentsCount}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; color: #64748b;">Compras de Dólares:</td>
+                <td style="padding: 6px 0; font-weight: bold; text-align: right;">${dollarPurchasesCount}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; color: #64748b;">Egresos / Gastos:</td>
+                <td style="padding: 6px 0; font-weight: bold; text-align: right;">${expensesCount}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; color: #64748b;">Archivo Adjunto:</td>
+                <td style="padding: 6px 0; font-weight: bold; text-align: right; font-family: monospace; color: #2563eb;">${fileName}</td>
+              </tr>
+            </table>
+          </div>
+
+          <p style="font-size: 13px; color: #64748b;">💡 <strong>Instrucciones de Restauración:</strong> Guarde este archivo adjunto <code>.json</code> en su dispositivo. En caso de emergencias, puede ir a <strong>Configuración > Copias de Seguridad</strong> en la plataforma y hacer clic en <em>Restaurar Base de Datos</em> para recuperar el 100% de la información.</p>
+          
+          <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8; text-align: center;">
+            Sistema de Respaldo Automático 24/7 - Control de Pagos Promo
+          </div>
+        </div>
+      </div>
+    `;
+
+    await transporter.sendMail({
+      from: `"${smtpCfg.fromName || 'Comité de Finanzas'}" <${smtpCfg.fromEmail || smtpCfg.user}>`,
+      to: destinationEmail,
+      subject: `📦 Respaldo Automático de Seguridad - Promoción ${tenantId.toUpperCase()} (${todayStr})`,
+      html: emailHtml,
+      attachments: [
+        {
+          filename: fileName,
+          content: jsonStr,
+          contentType: 'application/json',
+        },
+      ],
+    });
+
+    eb.lastEmailBackupDate = todayStr;
+    eb.lastEmailBackupTimestamp = new Date().toISOString();
+    eb.lastEmailBackupStatus = `Éxito ${isForce ? '(Manual)' : '(Automático)'}: Guardado y enviado a ${destinationEmail} el ${todayStr} a las ${timeStr}`;
+    eb.updatedAt = new Date().toISOString();
+    config.emailBackup = eb;
+    await saveTenantConfig(tenantId, config);
+
+    console.log(`[Email Auto-Backup Engine] Backup emailed for tenant ${tenantId} to ${destinationEmail}`);
+    return { success: true, message: `Respaldo enviado exitosamente por correo a ${destinationEmail}` };
+  } catch (err: any) {
+    const errMsg = err.message || 'Error enviando correo SMTP';
+    eb.lastEmailBackupStatus = `Error el ${todayStr} (${timeStr}): ${errMsg}`;
+    eb.updatedAt = new Date().toISOString();
+    config.emailBackup = eb;
+    await saveTenantConfig(tenantId, config);
+    console.error(`[Email Auto-Backup Engine] Error for tenant ${tenantId}:`, errMsg);
+    return { success: false, error: errMsg };
+  }
+}
+
+// Tenant Daily Email Backup Routine
+async function runTenantDailyEmailBackups(): Promise<void> {
+  let tenantsMap: Record<string, any> = {};
+  if (fs.existsSync(TENANTS_FILE)) {
+    try {
+      tenantsMap = JSON.parse(fs.readFileSync(TENANTS_FILE, 'utf-8'));
+    } catch (e) {}
+  }
+  if (Object.keys(tenantsMap).length === 0) {
+    tenantsMap['original'] = { id: 'original', name: 'Promoción Principal' };
+  }
+
+  for (const tenantId of Object.keys(tenantsMap)) {
+    await executeSingleTenantEmailBackup(tenantId, false);
+  }
+}
+
 // Master Daily Backup Function for SuperAdmin
 async function generateMasterDailySnapshot(): Promise<{ success: boolean; filePath?: string; error?: string }> {
   try {
@@ -4012,6 +4235,89 @@ async function startServer() {
     }
   });
 
+  // TENANT EMAIL BACKUP (SMTP) ENDPOINTS
+  app.get('/api/tenant/email-backup-status', async (req, res) => {
+    try {
+      const tenantId = (req.headers['x-tenant-id'] as string) || 'original';
+      const config = await loadTenantConfig(tenantId);
+      const eb = config.emailBackup || {
+        enabled: true,
+        frequency: 'daily',
+        backupTime: '11:45',
+        destinationEmail: '',
+        lastEmailBackupDate: '',
+        lastEmailBackupStatus: '',
+      };
+      const tenant = await findTenant(tenantId);
+      const smtpCfg = config.smtp;
+
+      res.json({
+        success: true,
+        enabled: eb.enabled !== false,
+        frequency: eb.frequency || 'daily',
+        backupTime: eb.backupTime || '11:45',
+        destinationEmail: eb.destinationEmail || tenant?.adminEmail || smtpCfg?.fromEmail || smtpCfg?.user || '',
+        lastEmailBackupDate: eb.lastEmailBackupDate || null,
+        lastEmailBackupStatus: eb.lastEmailBackupStatus || null,
+        smtpConfigured: !!(smtpCfg && smtpCfg.enabled && smtpCfg.host && smtpCfg.user && smtpCfg.pass),
+        smtpUser: smtpCfg?.user || null
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/tenant/email-backup-config', express.json(), async (req, res) => {
+    try {
+      const tenantId = (req.headers['x-tenant-id'] as string) || req.body.tenantId || 'original';
+      const { enabled, frequency, backupTime, destinationEmail } = req.body;
+      const config = await loadTenantConfig(tenantId);
+
+      const eb = config.emailBackup || {
+        enabled: true,
+        frequency: 'daily',
+        backupTime: '11:45',
+        destinationEmail: '',
+      };
+
+      eb.enabled = Boolean(enabled);
+      if (frequency && ['daily', 'weekly', 'every_12_hours'].includes(frequency)) {
+        eb.frequency = frequency;
+      }
+      if (backupTime && typeof backupTime === 'string') {
+        if (eb.backupTime !== backupTime) {
+          eb.lastEmailBackupDate = ''; // Reset so it can run today if new scheduled time is set
+        }
+        eb.backupTime = backupTime;
+      }
+      if (destinationEmail !== undefined) {
+        eb.destinationEmail = destinationEmail.trim();
+      }
+      eb.updatedAt = new Date().toISOString();
+
+      config.emailBackup = eb;
+      await saveTenantConfig(tenantId, config);
+
+      res.json({ success: true, emailBackup: config.emailBackup });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Error guardando configuración de respaldo por correo' });
+    }
+  });
+
+  app.post('/api/tenant/email-backup-trigger', express.json(), async (req, res) => {
+    try {
+      const tenantId = (req.headers['x-tenant-id'] as string) || req.body.tenantId || 'original';
+      const result = await executeSingleTenantEmailBackup(tenantId, true);
+      if (result.success) {
+        res.json({ success: true, message: result.message || 'Respaldo enviado por correo exitosamente' });
+      } else {
+        res.status(400).json({ success: false, error: result.error });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Error al ejecutar respaldo por correo' });
+    }
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -4042,14 +4348,18 @@ async function startServer() {
     generateMasterDailySnapshot().catch((bErr) => {
       console.error('Master daily backup error:', bErr);
     });
-    // Run Automated Tenant Google Drive Backups
+    // Run Automated Tenant Google Drive & Email Backups
     runTenantDailyDriveBackups().catch((dErr) => {
       console.error('Tenant Drive daily backup error:', dErr);
     });
+    runTenantDailyEmailBackups().catch((eErr) => {
+      console.error('Tenant Email daily backup error:', eErr);
+    });
 
-    // Interval check every 1 minute for scheduled tenant drive backups
+    // Interval check every 1 minute for scheduled tenant drive and email backups
     setInterval(() => {
       runTenantDailyDriveBackups().catch(err => console.error('Interval tenant drive backup error:', err));
+      runTenantDailyEmailBackups().catch(err => console.error('Interval tenant email backup error:', err));
     }, 60 * 1000);
 
     // Interval check every 12 hours for master daily snapshot

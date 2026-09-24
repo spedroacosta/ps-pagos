@@ -497,6 +497,114 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
   const [driveAutoEnabled, setDriveAutoEnabled] = useState<boolean>(true);
   const [isSavingDriveConfig, setIsSavingDriveConfig] = useState<boolean>(false);
 
+  // Email SMTP Auto-Backup States
+  const [serverEmailBackupStatus, setServerEmailBackupStatus] = useState<{
+    enabled: boolean;
+    frequency: 'daily' | 'weekly' | 'every_12_hours';
+    backupTime: string;
+    destinationEmail: string;
+    lastEmailBackupDate: string | null;
+    lastEmailBackupStatus: string | null;
+    smtpConfigured: boolean;
+    smtpUser: string | null;
+  } | null>(null);
+
+  const [emailFrequency, setEmailFrequency] = useState<'daily' | 'weekly' | 'every_12_hours'>('daily');
+  const [emailBackupTime, setEmailBackupTime] = useState<string>('11:45');
+  const [emailDestinationInput, setEmailDestinationInput] = useState<string>('');
+  const [emailAutoEnabled, setEmailAutoEnabled] = useState<boolean>(true);
+  const [isSavingEmailConfig, setIsSavingEmailConfig] = useState<boolean>(false);
+  const [isEmailBackingUp, setIsEmailBackingUp] = useState<boolean>(false);
+
+  const fetchEmailBackupStatus = useCallback(async () => {
+    try {
+      const headers = { ...getTenantHeaders() };
+      if (tenantId) headers['x-tenant-id'] = tenantId;
+      const res = await fetch('/api/tenant/email-backup-status', { headers });
+      const data = await res.json();
+      if (data.success) {
+        setServerEmailBackupStatus({
+          enabled: data.enabled,
+          frequency: data.frequency || 'daily',
+          backupTime: data.backupTime || '11:45',
+          destinationEmail: data.destinationEmail || '',
+          lastEmailBackupDate: data.lastEmailBackupDate,
+          lastEmailBackupStatus: data.lastEmailBackupStatus,
+          smtpConfigured: data.smtpConfigured,
+          smtpUser: data.smtpUser,
+        });
+        setEmailFrequency(data.frequency || 'daily');
+        setEmailBackupTime(data.backupTime || '11:45');
+        setEmailDestinationInput(data.destinationEmail || '');
+        setEmailAutoEnabled(data.enabled !== false);
+      }
+    } catch (e) {}
+  }, [tenantId]);
+
+  useEffect(() => {
+    fetchEmailBackupStatus();
+  }, [fetchEmailBackupStatus]);
+
+  const handleSaveEmailConfig = async (enabled?: boolean, freq?: string, time?: string, dest?: string) => {
+    try {
+      setIsSavingEmailConfig(true);
+      const newEnabled = enabled !== undefined ? enabled : emailAutoEnabled;
+      const newFreq = freq || emailFrequency;
+      const newTime = time || emailBackupTime;
+      const newDest = dest !== undefined ? dest : emailDestinationInput;
+
+      const headers = { 'Content-Type': 'application/json', ...getTenantHeaders() };
+      if (tenantId) headers['x-tenant-id'] = tenantId;
+
+      const res = await fetch('/api/tenant/email-backup-config', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          enabled: newEnabled,
+          frequency: newFreq,
+          backupTime: newTime,
+          destinationEmail: newDest
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        await fetchEmailBackupStatus();
+        alert('✅ ¡Configuración de respaldo automático por correo guardada exitosamente!');
+      } else {
+        alert('Error guardando configuración: ' + (data.error || 'Desconocido'));
+      }
+    } catch (err: any) {
+      alert('Error de conexión: ' + err.message);
+    } finally {
+      setIsSavingEmailConfig(false);
+    }
+  };
+
+  const handleTriggerEmailBackup = async () => {
+    try {
+      setIsEmailBackingUp(true);
+      const headers = { 'Content-Type': 'application/json', ...getTenantHeaders() };
+      if (tenantId) headers['x-tenant-id'] = tenantId;
+
+      const res = await fetch('/api/tenant/email-backup-trigger', {
+        method: 'POST',
+        headers
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('🎉 ¡Respaldo por correo enviado exitosamente!\n\n' + data.message);
+        await fetchEmailBackupStatus();
+      } else {
+        alert('❌ No se pudo enviar el respaldo por correo:\n\n' + (data.error || 'Verifica la configuración SMTP.'));
+        await fetchEmailBackupStatus();
+      }
+    } catch (err: any) {
+      alert('Error de conexión: ' + err.message);
+    } finally {
+      setIsEmailBackingUp(false);
+    }
+  };
+
   const fetchDriveStatus = useCallback(async () => {
     try {
       const headers = { ...getTenantHeaders() };
@@ -2942,10 +3050,10 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
           <div className="border-b border-slate-100 pb-3">
             <h3 className="font-extrabold text-slate-900 text-xs uppercase tracking-wider flex items-center space-x-2">
               <Database className="w-4 h-4 text-indigo-600" />
-              <span>Respaldar & Restaurar Base de Datos</span>
+              <span>Sistema de Copias de Seguridad Automáticas & Restauración</span>
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Descarga copias locales completas o restaura registros previos en formato estructurado JSON.
+              Protege la información contable de tu promoción con copias automáticas diarias por correo (SMTP) o Google Drive, o descarga e importa respaldos locales.
             </p>
           </div>
 
@@ -2970,36 +3078,185 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Download Backup card */}
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-3.5 flex flex-col justify-between">
-              <div className="space-y-1.5">
-                <span className="font-bold text-slate-800 text-xs block flex items-center space-x-1.5">
-                  <Download className="w-4 h-4 text-[#162e58]" />
-                  <span>1. Exportar Respaldo Completo</span>
-                </span>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Genera y descarga un archivo estructurado <code className="bg-slate-200/50 px-1 py-0.5 rounded font-mono font-bold text-slate-800">.json</code> que contiene de forma unificada todos tus integrantes registrados, mensualidades configuradas, cuotas adicionales, transacciones y compras de divisas.
-                </p>
+          {/* PILAR 1: Respaldo Automático por Correo SMTP */}
+          <div className="bg-slate-900 text-white rounded-2xl p-5 space-y-4 shadow-md border border-slate-800">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black">
+                  <Mail className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-black text-sm uppercase tracking-wider text-white">
+                      1. Copias de Seguridad Automáticas por Correo (SMTP)
+                    </h4>
+                    <span className="bg-emerald-500 text-slate-950 font-black text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      ⭐ Recomendado - 100% Confiable
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    El servidor enviará la copia completa (<code className="text-emerald-400 font-mono font-bold">.json</code>) adjunta a tu correo electrónico sin requerir autorizaciones de navegador ni renovaciones de token.
+                  </p>
+                </div>
               </div>
-              <div className="flex flex-col gap-2 mt-3">
+
+              <label className="text-xs font-bold text-slate-300 flex items-center space-x-2 cursor-pointer bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700">
+                <input
+                  type="checkbox"
+                  checked={emailAutoEnabled}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setEmailAutoEnabled(checked);
+                    handleSaveEmailConfig(checked, emailFrequency, emailBackupTime, emailDestinationInput);
+                  }}
+                  className="rounded border-slate-600 text-indigo-500 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                />
+                <span>Respaldo por Correo Activo</span>
+              </label>
+            </div>
+
+            {/* SMTP Status banner */}
+            {!serverEmailBackupStatus?.smtpConfigured && (
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-200 flex items-center justify-between gap-2">
+                <div className="flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                  <span>
+                    El servidor SMTP aún no está configurado. Ve a la pestaña <strong>Notificaciones y Correos</strong> para activarlo.
+                  </span>
+                </div>
                 <button
                   type="button"
-                  onClick={handleDownloadBackup}
-                  className="bg-[#162e58] hover:bg-[#0a1e3f] text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-xs transition-all cursor-pointer w-full"
+                  onClick={() => setActiveSubTab('notifications')}
+                  className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[10px] px-3 py-1.5 rounded-lg uppercase transition-colors flex-shrink-0"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Descargar Copia de Seguridad Local (.json)</span>
+                  Configurar SMTP
                 </button>
+              </div>
+            )}
+
+            {/* Email Config Controls */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-800/60 p-3.5 rounded-xl border border-slate-700/60">
+              <div>
+                <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">
+                  Frecuencia de Envío
+                </label>
+                <select
+                  value={emailFrequency}
+                  onChange={(e) => setEmailFrequency(e.target.value as any)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg text-xs font-bold text-white px-2.5 py-2 focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                >
+                  <option value="daily">Diario (Todos los días)</option>
+                  <option value="every_12_hours">Cada 12 horas (2 veces al día)</option>
+                  <option value="weekly">Semanal (Todos los Lunes)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">
+                  Hora Exacta (HH:MM)
+                </label>
+                <input
+                  type="time"
+                  step="60"
+                  value={emailBackupTime}
+                  onChange={(e) => setEmailBackupTime(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg text-xs font-bold text-white px-2.5 py-2 focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">
+                  Correo Electrónico Destino
+                </label>
+                <input
+                  type="email"
+                  value={emailDestinationInput}
+                  onChange={(e) => setEmailDestinationInput(e.target.value)}
+                  placeholder="ej. correo@gmail.com"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg text-xs font-bold text-emerald-400 px-2.5 py-2 focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+
+            {/* Email Status Log Box */}
+            <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-300 text-[11px] flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>Estado del Respaldo por Correo:</span>
+                </span>
+                <span className="text-[10px] font-bold text-slate-400 font-mono">
+                  Programado: {emailFrequency === 'daily' ? 'Diario' : emailFrequency === 'weekly' ? 'Semanal' : 'Cada 12h'} a las {emailBackupTime}
+                </span>
+              </div>
+
+              {serverEmailBackupStatus?.lastEmailBackupStatus ? (
+                <p className={`text-[11px] font-mono px-3 py-2 rounded-lg border ${serverEmailBackupStatus.lastEmailBackupStatus.toLowerCase().includes('error') ? 'bg-rose-950/60 text-rose-300 border-rose-800/60' : 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60'}`}>
+                  {serverEmailBackupStatus.lastEmailBackupStatus}
+                </p>
+              ) : (
+                <p className="text-[11px] text-slate-500 italic">
+                  Aún no se ha ejecutado el respaldo por correo el día de hoy. Se enviará automáticamente a las {emailBackupTime}.
+                </p>
+              )}
+            </div>
+
+            {/* Action Buttons for Email Backup */}
+            <div className="flex flex-col sm:flex-row justify-between gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => handleSaveEmailConfig()}
+                disabled={isSavingEmailConfig}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs px-4 py-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-center space-x-1.5"
+              >
+                <Check className="w-4 h-4 text-emerald-400" />
+                <span>{isSavingEmailConfig ? 'Guardando...' : 'Guardar Horario y Correo Destino'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleTriggerEmailBackup}
+                disabled={isEmailBackingUp || !serverEmailBackupStatus?.smtpConfigured}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs px-5 py-2.5 rounded-xl shadow-md transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center space-x-2"
+              >
+                <Send className="w-4 h-4" />
+                <span>{isEmailBackingUp ? 'Enviando Respaldo...' : '📧 Enviar Respaldo por Correo Ahora (Probar)'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* PILAR 2: Google Drive Backup Card */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4 flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                      ☁️
+                    </div>
+                    <span className="font-extrabold text-slate-900 text-xs uppercase tracking-wider">
+                      2. Copia en Google Drive
+                    </span>
+                  </div>
+                  {serverDriveStatus?.isConnected && (
+                    <span className="bg-emerald-100 text-emerald-800 font-extrabold text-[10px] px-2 py-0.5 rounded-full">
+                      VINCULADO
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  Guarda automáticamente copias en la nube de tu Google Drive en la fecha y hora seleccionadas.
+                </p>
 
                 {/* Google Drive Connection & Schedule Config */}
                 {serverDriveStatus?.isConnected ? (
-                  <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-4 text-xs space-y-3.5 shadow-2xs">
-                    <div className="flex items-center justify-between pb-2 border-b border-emerald-200/60">
+                  <div className="bg-white border border-slate-200 rounded-xl p-3.5 text-xs space-y-3 shadow-2xs">
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                       <div className="flex items-center space-x-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                        <span className="font-bold text-emerald-950">
-                          Google Drive Conectado {serverDriveStatus.userEmail ? `(${serverDriveStatus.userEmail})` : ''}
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span className="font-bold text-slate-800 text-[11px]">
+                          {serverDriveStatus.userEmail || 'Cuenta de Google activa'}
                         </span>
                       </div>
                       <button
@@ -3017,7 +3274,7 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
                             alert('Cuenta de Google Drive desvinculada del servidor.');
                           }
                         }}
-                        className="text-[11px] font-bold text-red-600 hover:text-red-700 hover:underline cursor-pointer"
+                        className="text-[10px] font-bold text-red-600 hover:text-red-700 hover:underline cursor-pointer"
                       >
                         Desconectar
                       </button>
@@ -3025,7 +3282,7 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
 
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
-                        <label className="font-bold text-emerald-900 text-xs flex items-center gap-2 cursor-pointer">
+                        <label className="font-bold text-slate-800 text-xs flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
                             checked={driveAutoEnabled}
@@ -3034,150 +3291,79 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
                               setDriveAutoEnabled(checked);
                               handleSaveDriveConfig(checked, driveFrequency, driveBackupTime);
                             }}
-                            className="w-4 h-4 text-emerald-600 rounded border-emerald-300 focus:ring-emerald-500 cursor-pointer"
+                            className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
                           />
-                          <span>Activar Respaldo Automático Periódico</span>
+                          <span>Respaldo Automático en Drive</span>
                         </label>
-                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${driveAutoEnabled ? 'bg-emerald-200 text-emerald-900' : 'bg-slate-200 text-slate-700'}`}>
-                          {driveAutoEnabled ? 'AUTOMÁTICO ACTIVO' : 'PAUSADO'}
-                        </span>
                       </div>
 
                       {driveAutoEnabled && (
-                        <div className="bg-white border border-emerald-200/80 rounded-xl p-3 space-y-3 shadow-2xs">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                                Frecuencia del respaldo
-                              </label>
-                              <select
-                                value={driveFrequency}
-                                onChange={(e) => {
-                                  const val = e.target.value as any;
-                                  setDriveFrequency(val);
-                                }}
-                                className="w-full bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold px-2.5 py-1.5 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-                              >
-                                <option value="daily">Diario (Todos los días)</option>
-                                <option value="every_12_hours">Cada 12 horas (2 veces al día)</option>
-                                <option value="weekly">Semanal (Todos los Lunes)</option>
-                              </select>
-                            </div>
-
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                                Hora exacta del respaldo (HH:MM)
-                              </label>
-                              <input
-                                type="time"
-                                step="60"
-                                value={driveBackupTime}
-                                onChange={(e) => {
-                                  setDriveBackupTime(e.target.value);
-                                }}
-                                className="w-full bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold px-2.5 py-1.5 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer text-slate-900"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="flex items-center justify-between pt-1 border-t border-slate-100">
-                            <span className="text-[10px] text-slate-500">
-                              💡 Puedes personalizar la hora y minutos exactos del guardado.
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleSaveDriveConfig()}
-                              disabled={isSavingDriveConfig}
-                              className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-[11px] px-3.5 py-1.5 rounded-lg transition-all cursor-pointer shadow-2xs flex items-center space-x-1"
+                        <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Frecuencia</label>
+                            <select
+                              value={driveFrequency}
+                              onChange={(e) => setDriveFrequency(e.target.value as any)}
+                              className="w-full bg-white border border-slate-200 rounded text-xs font-semibold py-1 px-2"
                             >
-                              <Check className="w-3.5 h-3.5" />
-                              <span>{isSavingDriveConfig ? 'Guardando...' : 'Guardar Horario y Frecuencia'}</span>
-                            </button>
+                              <option value="daily">Diario</option>
+                              <option value="every_12_hours">Cada 12h</option>
+                              <option value="weekly">Semanal</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Hora (HH:MM)</label>
+                            <input
+                              type="time"
+                              step="60"
+                              value={driveBackupTime}
+                              onChange={(e) => setDriveBackupTime(e.target.value)}
+                              className="w-full bg-white border border-slate-200 rounded text-xs font-bold text-slate-900 py-1 px-2"
+                            />
                           </div>
                         </div>
                       )}
 
-                      <div className={`text-[11px] rounded-lg p-2.5 space-y-1.5 ${serverDriveStatus.lastAutoBackupStatus?.toLowerCase().includes('error') ? 'bg-amber-100/90 text-amber-950 border border-amber-300' : 'bg-emerald-100/60 text-emerald-900'}`}>
-                        <p className="font-semibold">
-                          📌 <strong>Horario Programado Activo:</strong> Se guardará automáticamente en Drive {driveFrequency === 'daily' ? 'todos los días' : driveFrequency === 'weekly' ? 'todos los lunes' : 'cada 12 horas'} a las <strong>{driveBackupTime}</strong>.
-                        </p>
+                      <div className={`text-[10px] rounded-lg p-2.5 space-y-1 ${serverDriveStatus.lastAutoBackupStatus?.toLowerCase().includes('error') ? 'bg-rose-50 text-rose-900 border border-rose-200' : 'bg-emerald-50 text-emerald-900 border border-emerald-100'}`}>
                         {serverDriveStatus.lastAutoBackupStatus ? (
-                          <div className="text-[10px] font-medium space-y-1">
-                            <p>
-                              <strong>Estado del servidor:</strong> {serverDriveStatus.lastAutoBackupStatus}
-                            </p>
-                            {serverDriveStatus.lastAutoBackupStatus.toLowerCase().includes('error') && (
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  const headers = { ...getTenantHeaders() };
-                                  if (tenantId) headers['x-tenant-id'] = tenantId;
-                                  await fetch('/api/tenant/google-drive-disconnect', {
-                                    method: 'POST',
-                                    headers
-                                  });
-                                  localStorage.removeItem('driveToken');
-                                  fetchDriveStatus();
-                                }}
-                                className="inline-flex items-center gap-1 font-bold text-amber-900 underline hover:text-amber-700 cursor-pointer text-[10px] mt-0.5"
-                              >
-                                🔄 Reautorizar / Renovar Permiso de Google Drive
-                              </button>
-                            )}
-                          </div>
-                        ) : serverDriveStatus.lastAutoBackupDate ? (
-                          <p className="text-[10px] font-medium">
-                            <strong>Última ejecución:</strong> {serverDriveStatus.lastAutoBackupDate}
+                          <p className="font-mono">
+                            <strong>Estado:</strong> {serverDriveStatus.lastAutoBackupStatus}
                           </p>
-                        ) : null}
+                        ) : (
+                          <p className="font-semibold">
+                            Programado a las {driveBackupTime} ({driveFrequency})
+                          </p>
+                        )}
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={handleTriggerServerDriveBackup}
-                        disabled={isDriveBackingUp}
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 px-3 rounded-lg flex items-center justify-center space-x-1.5 shadow-2xs transition-all cursor-pointer disabled:opacity-50"
-                      >
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>{isDriveBackingUp ? 'Ejecutando Respaldo en la Nube...' : '⚡ Ejecutar Respaldo en Google Drive Ahora'}</span>
-                      </button>
+                      <div className="flex flex-col gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => handleSaveDriveConfig()}
+                          disabled={isSavingDriveConfig}
+                          className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-[11px] py-1.5 px-3 rounded-lg border border-slate-200 transition-all cursor-pointer flex items-center justify-center space-x-1"
+                        >
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>{isSavingDriveConfig ? 'Guardando...' : 'Guardar Horario Drive'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleTriggerServerDriveBackup}
+                          disabled={isDriveBackingUp}
+                          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2 px-3 rounded-lg flex items-center justify-center space-x-1.5 shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>{isDriveBackingUp ? 'Subiendo a Drive...' : '⚡ Ejecutar Respaldo en Drive Ahora'}</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ) : (
                   <div className="bg-blue-50/60 border border-blue-200 rounded-xl p-4 text-xs space-y-3">
-                    <div className="space-y-1">
-                      <span className="font-extrabold text-blue-950 block text-xs">
-                        ☁️ Vincular Google Drive para Respaldos Automáticos
-                      </span>
-                      <p className="text-[11px] text-slate-600 leading-relaxed">
-                        Configura la hora y minutos en que deseas que el servidor guarde la copia de seguridad de tu promoción directamente en tu Google Drive.
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-white p-2.5 rounded-lg border border-blue-100">
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Frecuencia</label>
-                        <select
-                          value={driveFrequency}
-                          onChange={(e) => setDriveFrequency(e.target.value as any)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded text-xs py-1 px-2 font-semibold"
-                        >
-                          <option value="daily">Diario</option>
-                          <option value="every_12_hours">Cada 12 horas</option>
-                          <option value="weekly">Semanal</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Hora deseada (HH:MM)</label>
-                        <input
-                          type="time"
-                          step="60"
-                          value={driveBackupTime}
-                          onChange={(e) => setDriveBackupTime(e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded text-xs py-1 px-2 font-bold text-slate-900"
-                        />
-                      </div>
-                    </div>
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      Haz clic abajo para seleccionar tu cuenta de Google y otorgar el permiso de guardar copias de seguridad de la promoción.
+                    </p>
 
                     <button
                       type="button"
@@ -3192,34 +3378,59 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
               </div>
             </div>
 
-            {/* Upload/Restore card */}
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-3.5 flex flex-col justify-between">
-              <div className="space-y-1.5">
-                <span className="font-bold text-slate-800 text-xs block flex items-center space-x-1.5">
-                  <Upload className="w-4 h-4 text-amber-600" />
-                  <span>2. Restaurar Copia de Seguridad</span>
-                </span>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Sube una copia previamente exportada para reescribir y restablecer la base de datos de tu promoción. <span className="text-red-600 font-extrabold">¡Cuidado! Esta acción sobrescribirá todos los datos ingresados actualmente sin posibilidad de retroceso.</span>
-                </p>
-              </div>
-              
-              <div className="relative">
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={handleUploadBackup}
-                  disabled={isRestoring}
-                  className="hidden"
-                  id="restore-upload-input"
-                />
-                <label
-                  htmlFor="restore-upload-input"
-                  className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-xs transition-all cursor-pointer w-full text-center"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>Subir y Restaurar Base de Datos</span>
-                </label>
+            {/* PILAR 3: Local Export & Database Restore */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4 flex flex-col justify-between">
+              <div className="space-y-3">
+                <div className="border-b border-slate-200 pb-2.5 flex items-center space-x-2">
+                  <div className="w-7 h-7 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+                    💾
+                  </div>
+                  <span className="font-extrabold text-slate-900 text-xs uppercase tracking-wider">
+                    3. Respaldo Local & Restauración
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={handleDownloadBackup}
+                    className="bg-[#162e58] hover:bg-[#0a1e3f] text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-xs transition-all cursor-pointer w-full"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>📥 Descargar Copia Local Instantánea (.json)</span>
+                  </button>
+                  <p className="text-[10px] text-slate-500 leading-tight">
+                    Descarga directa a tu teléfono o computadora de un archivo <code>.json</code> con la base de datos completa.
+                  </p>
+                </div>
+
+                <hr className="border-slate-200" />
+
+                <div className="space-y-2">
+                  <span className="block text-[11px] font-bold text-slate-800">
+                    Restaurar Base de Datos desde Archivo JSON:
+                  </span>
+                  <div className="relative">
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={handleUploadBackup}
+                      disabled={isRestoring}
+                      className="hidden"
+                      id="restore-upload-input"
+                    />
+                    <label
+                      htmlFor="restore-upload-input"
+                      className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-xs transition-all cursor-pointer w-full text-center"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>📤 Subir y Restaurar Base de Datos</span>
+                    </label>
+                  </div>
+                  <p className="text-[10px] text-rose-700 font-bold leading-tight">
+                    ⚠️ Sobrescribirá todos los datos actuales por la versión del archivo cargado.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
