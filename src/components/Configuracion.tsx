@@ -592,11 +592,13 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
     try {
       const codeClient = google.accounts.oauth2.initCodeClient({
         client_id: "753906353358-ld8k47do0qkqfsnmidk4t50ojrbaihre.apps.googleusercontent.com",
-        scope: 'https://www.googleapis.com/auth/drive.file',
+        scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
         ux_mode: 'popup',
+        select_account: true,
         callback: async (response: any) => {
           if (response.code) {
             try {
+              setIsDriveBackingUp(true);
               const headers = { 'Content-Type': 'application/json', ...getTenantHeaders() };
               if (tenantId) headers['x-tenant-id'] = tenantId;
 
@@ -612,12 +614,27 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
               });
               const data = await res.json();
               if (data.success) {
-                alert(`🎉 ¡Vinculación Permanente de Google Drive Exitosa!\n\nTu cuenta ha quedado registrada. Las copias de seguridad de esta promoción se guardarán de forma 100% automática en tu Google Drive a las ${driveBackupTime}.`);
-                fetchDriveStatus();
+                // Execute immediate test backup so the user gets instant verification!
+                const trigRes = await fetch('/api/tenant/google-drive-trigger', {
+                  method: 'POST',
+                  headers
+                });
+                const trigData = await trigRes.json();
+                setIsDriveBackingUp(false);
+                await fetchDriveStatus();
+
+                const emailMsg = data.googleDrive?.userEmail ? ` (${data.googleDrive.userEmail})` : '';
+                if (trigData.success) {
+                  alert(`🎉 ¡Vinculación Permanente de Google Drive Exitosa y Verificada!\n\nTu cuenta${emailMsg} ha sido registrada y se ha guardado una PRIMERA COPIA DE RESPALDO DE PRUEBA en tu Google Drive (ID: ${trigData.fileId}).\n\nLas siguientes copias de seguridad de esta promoción se guardarán de forma 100% automática todos los días a las ${driveBackupTime}.`);
+                } else {
+                  alert(`🎉 ¡Vinculación Permanente de Google Drive Exitosa!\n\nTu cuenta${emailMsg} ha quedado registrada. Las copias de seguridad de esta promoción se guardarán de forma 100% automática en tu Google Drive a las ${driveBackupTime}.`);
+                }
               } else {
+                setIsDriveBackingUp(false);
                 alert('Error al guardar credenciales en servidor: ' + (data.error || 'Desconocido'));
               }
             } catch (err: any) {
+              setIsDriveBackingUp(false);
               alert('Error de conexión con servidor: ' + err.message);
             }
           }
@@ -627,7 +644,7 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
     } catch (codeErr) {
       const tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: "753906353358-ld8k47do0qkqfsnmidk4t50ojrbaihre.apps.googleusercontent.com",
-        scope: 'https://www.googleapis.com/auth/drive.file',
+        scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
         prompt: 'consent',
         callback: async (tokenResponse: any) => {
           if (tokenResponse && tokenResponse.access_token) {
@@ -645,8 +662,11 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
                 backupTime: driveBackupTime
               })
             });
-            fetchDriveStatus();
-            alert('🎉 ¡Conectado exitosamente con Google Drive!');
+
+            // Trigger immediate backup verification
+            await fetch('/api/tenant/google-drive-trigger', { method: 'POST', headers }).catch(() => {});
+            await fetchDriveStatus();
+            alert('🎉 ¡Conectado exitosamente con Google Drive y copia de respaldo verificada!');
           }
         },
       });

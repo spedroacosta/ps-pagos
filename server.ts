@@ -3882,6 +3882,7 @@ async function startServer() {
 
       let finalAccessToken = accessToken || '';
       let finalRefreshToken = refreshToken || '';
+      let fetchedEmail = userEmail || '';
 
       const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "753906353358-ld8k47do0qkqfsnmidk4t50ojrbaihre.apps.googleusercontent.com";
       const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
@@ -3896,6 +3897,19 @@ async function startServer() {
           const { tokens } = await oauth2Client.getToken(code);
           if (tokens.access_token) finalAccessToken = tokens.access_token;
           if (tokens.refresh_token) finalRefreshToken = tokens.refresh_token;
+
+          // Fetch email using access_token
+          if (finalAccessToken) {
+            try {
+              const uRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+                headers: { Authorization: `Bearer ${finalAccessToken}` }
+              });
+              if (uRes.ok) {
+                const uData = await uRes.json();
+                if (uData.email) fetchedEmail = uData.email;
+              }
+            } catch (e) {}
+          }
         } catch (codeErr: any) {
           console.warn('[Google Drive Auth] Code exchange note:', codeErr.message);
         }
@@ -3910,7 +3924,7 @@ async function startServer() {
         backupTime: backupTime || config.googleDrive?.backupTime || '03:00',
         lastAutoBackupDate: config.googleDrive?.lastAutoBackupDate || '',
         lastAutoBackupStatus: config.googleDrive?.lastAutoBackupStatus || '',
-        userEmail: userEmail || config.googleDrive?.userEmail || '',
+        userEmail: fetchedEmail || config.googleDrive?.userEmail || '',
         updatedAt: new Date().toISOString()
       };
 
