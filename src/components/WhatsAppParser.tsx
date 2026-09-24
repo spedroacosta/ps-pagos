@@ -96,6 +96,7 @@ export const WhatsAppParser: React.FC<WhatsAppParserProps> = ({
             targetId: defaultTargetId,
             targetLabel: item.targetLabel || 'Mayo 2026',
             selectedConcepts: initialConcepts,
+            conceptAllocationsUSD: item.conceptAllocationsUSD && Array.isArray(item.conceptAllocationsUSD) ? item.conceptAllocationsUSD : undefined,
             notes: item.notes || 'Parseado de WhatsApp',
             approved: true,
           };

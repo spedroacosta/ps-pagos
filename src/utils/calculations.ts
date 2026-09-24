@@ -563,8 +563,16 @@ export function distributePaymentAcrossConcepts(params: {
 
   const isDirectUsd = isUsdMethod(method, currency, customMethods);
   
-  // We will handle partial manual allocations within the waterfall.
-  
+  // Calculate member solvency to get exact unpaid debt (owedUSD) for each pocket/month/quota
+  const dummyMember: Member = { id: memberId, firstName: '', lastName: '', cedula: '', email: '' };
+  const solvency = calculateMemberSolvency(
+    dummyMember,
+    months,
+    quotas,
+    existingPayments,
+    lateFeeConfig
+  );
+
   // Total original currency pool to distribute (either USD or VES)
   let remainingPoolOriginal = amountOriginal;
   const count = selectedConcepts.length;
@@ -580,6 +588,7 @@ export function distributePaymentAcrossConcepts(params: {
     let targetLabel = id;
     let requiredFee_direct = 12;
     let requiredFee_bcv = 16;
+    let neededUSD_direct = 12;
 
     if (tType === 'month') {
       const m = months.find((m) => m.id === id);
@@ -588,6 +597,8 @@ export function distributePaymentAcrossConcepts(params: {
         requiredFee_direct = m.feeUSD_direct || m.feeUSD || 12;
         requiredFee_bcv = m.feeUSD_bcv || m.feeUSD || 16;
       }
+      const mStatus = solvency.monthsStatus[id];
+      neededUSD_direct = mStatus !== undefined ? mStatus.owedUSD : requiredFee_direct;
     } else if (tType === 'late_fee') {
       if (id === 'global') {
         targetLabel = 'Multas por Atraso';
@@ -597,6 +608,7 @@ export function distributePaymentAcrossConcepts(params: {
       }
       requiredFee_direct = lateFeeConfig?.feeUSD_direct || 2;
       requiredFee_bcv = lateFeeConfig?.feeUSD_bcv || 3;
+      neededUSD_direct = requiredFee_direct;
     } else {
       const q = quotas.find((q) => q.id === id);
       targetLabel = q ? q.title : id;
@@ -604,25 +616,18 @@ export function distributePaymentAcrossConcepts(params: {
         requiredFee_direct = q.feeUSD_direct || q.feeUSD || 0;
         requiredFee_bcv = q.feeUSD_bcv || q.feeUSD_direct || 0;
       }
+      const qStatus = solvency.quotasStatus[id];
+      neededUSD_direct = qStatus !== undefined ? qStatus.owedUSD : requiredFee_direct;
     }
 
-    // Check how much member ALREADY paid for this target in direct USD equivalent
-    const currentPayments = existingPayments.filter(
-      (p) => p.memberId === memberId && p.targetType === tType && p.targetId === id
-    );
-    const alreadyPaidUSD_direct = currentPayments.reduce((s, p) => s + p.amountUSD, 0);
-    const neededUSD_direct = Math.max(0, requiredFee_direct - alreadyPaidUSD_direct);
-
-    // If it's fully paid already (or late_fee), just target what's required (for display or overpayment)
-    const targetUSD_direct = neededUSD_direct > 0 ? neededUSD_direct : requiredFee_direct;
+    // Capacity needed in direct USD
+    const targetUSD_direct = Math.max(0, neededUSD_direct);
     
     // Determine how much is required in the ORIGINAL currency (USD or VES)
     let targetOriginalNeeded = 0;
     if (isDirectUsd) {
       targetOriginalNeeded = targetUSD_direct;
     } else {
-      // Rule of 3 for VES payments: (direct_usd_needed * fee_bcv / fee_direct) * bcvRate
-      // Or simply: portion of fee_bcv needed * bcvRate
       const proportion = requiredFee_direct > 0 ? (targetUSD_direct / requiredFee_direct) : 1;
       targetOriginalNeeded = proportion * requiredFee_bcv * bcvRate;
     }
@@ -634,9 +639,16 @@ export function distributePaymentAcrossConcepts(params: {
     if (manualAlloc !== undefined && manualAlloc > 0) {
       allocOriginal = Math.min(remainingPoolOriginal, manualAlloc);
     } else if (i === count - 1) {
-      // Last item gets all the remaining pool
-      allocOriginal = remainingPoolOriginal;
-      
+      // Last concept: if remaining pool is smaller or equal to needed, or if targetOriginalNeeded is 0, cap appropriately
+      if (targetOriginalNeeded > 0 && remainingPoolOriginal > targetOriginalNeeded) {
+        // If remaining pool exceeds needed, take targetOriginalNeeded unless it's a single concept or overpayment
+        allocOriginal = count === 1 ? remainingPoolOriginal : Math.min(remainingPoolOriginal, targetOriginalNeeded);
+      } else if (targetOriginalNeeded > 0) {
+        allocOriginal = remainingPoolOriginal;
+      } else {
+        allocOriginal = remainingPoolOriginal;
+      }
+
       // Apply tolerance logic for single or last item
       if (targetOriginalNeeded > 0) {
         const toleranceOriginal = isDirectUsd ? 0.80 : (0.80 * bcvRate);
@@ -645,7 +657,7 @@ export function distributePaymentAcrossConcepts(params: {
         }
       }
     } else {
-      // Waterfall allocation up to what's needed
+      // Waterfall allocation up to what's needed for this pocket
       allocOriginal = Math.min(remainingPoolOriginal, targetOriginalNeeded);
       
       // Apply tolerance logic for intermediate items
@@ -655,7 +667,6 @@ export function distributePaymentAcrossConcepts(params: {
           allocOriginal = targetOriginalNeeded; 
         }
       }
-      
     }
 
     remainingPoolOriginal = Math.max(0, remainingPoolOriginal - allocOriginal);
@@ -664,7 +675,6 @@ export function distributePaymentAcrossConcepts(params: {
     if (isDirectUsd) {
       allocDirectUSD = allocOriginal;
     } else {
-      // allocOriginal is in VES. Convert to direct USD using rule of 3:
       if (requiredFee_bcv > 0 && bcvRate > 0) {
         allocDirectUSD = (allocOriginal / bcvRate) * (requiredFee_direct / requiredFee_bcv);
       } else {

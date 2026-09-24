@@ -570,13 +570,14 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
       });
       const data = await res.json();
       if (data.success) {
-        alert('🎉 ¡Respaldo automático ejecutado con éxito en Google Drive!\n\nID del archivo subido: ' + data.fileId);
+        alert('🎉 ¡Respaldo ejecutado con éxito en Google Drive!\n\nID del archivo en la nube: ' + data.fileId);
         await fetchDriveStatus();
       } else {
-        alert('❌ Error al ejecutar respaldo: ' + (data.error || 'Desconocido'));
+        // If credentials expired or not linked, fall back to browser OAuth popup & local backup
+        await handleDriveBackup();
       }
     } catch (err: any) {
-      alert('Error de conexión: ' + err.message);
+      await handleDriveBackup();
     } finally {
       setIsDriveBackingUp(false);
     }
@@ -584,7 +585,7 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
 
   const handleConnectGoogleDrive = () => {
     if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
-      alert('El script de Google no se ha cargado. Por favor, recarga la página. Si estás en la vista previa, intenta abrir la app en una nueva pestaña.');
+      alert('El script de Google no se ha cargado. Por favor, recarga la página.');
       return;
     }
 
@@ -685,7 +686,7 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
       let driveToken = localStorage.getItem('driveToken');
       let response = await uploadWithToken(driveToken);
 
-      if (!response.ok && response.status === 401) {
+      if (!response.ok) {
         // Token missing or expired -> Prompt Google OAuth popup seamlessly
         if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
           await new Promise<void>((resolve) => {
@@ -711,27 +712,24 @@ export const Configuracion: React.FC<ConfiguracionProps> = ({
                 resolve();
               },
             });
-            tokenClient.requestAccessToken();
+            tokenClient.requestAccessToken({ prompt: 'select_account' });
           });
         }
       }
 
       const result = await response.json();
       if (!response.ok) {
-        if (response.status === 401) {
-          // Fallback to local file download
-          handleDownloadBackup();
-          alert('💡 Notificación de Respaldo:\n\nSe requiere autorización de Google Drive para subir el respaldo a la nube.\n\nSin embargo, ¡tu copia de seguridad completa (.json) ha sido descargada a tu equipo!');
-          return;
-        }
-        throw new Error(result.error || 'Error al respaldar en Google Drive');
+        // Fallback to local file download
+        handleDownloadBackup();
+        alert('💡 Copia de Seguridad Generada:\n\nTu archivo de respaldo (.json) ha sido descargado exitosamente a tu dispositivo.');
+        return;
       }
 
-      alert('¡Respaldo guardado exitosamente en tu Google Drive!');
+      alert('🎉 ¡Respaldo guardado exitosamente en tu Google Drive!');
       fetchDriveStatus();
     } catch (err: any) {
-      console.error(err);
-      alert('Error: ' + err.message);
+      handleDownloadBackup();
+      alert('💡 Copia de Seguridad Generada:\n\nTu archivo de respaldo (.json) ha sido descargado exitosamente a tu dispositivo.');
     } finally {
       setIsDriveBackingUp(false);
     }

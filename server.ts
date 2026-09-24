@@ -392,6 +392,7 @@ function distributePaymentAcrossConceptsInTelegram(params: {
   months: any[];
   quotas: any[];
   existingPayments?: any[];
+  manualAllocationsOriginal?: Record<string, number>;
 }) {
   const {
     memberId,
@@ -403,6 +404,7 @@ function distributePaymentAcrossConceptsInTelegram(params: {
     months,
     quotas,
     existingPayments = [],
+    manualAllocationsOriginal,
   } = params;
 
   if (!selectedConcepts || selectedConcepts.length === 0 || amountOriginal <= 0) {
@@ -454,9 +456,19 @@ function distributePaymentAcrossConceptsInTelegram(params: {
 
     // Check how much member ALREADY paid for this target in direct USD equivalent
     const currentPayments = existingPayments.filter(
-      (p) => p.memberId === memberId && p.targetType === tType && p.targetId === id
+      (p) => p.memberId === memberId && (p.targetType === tType || (p.breakdown && p.breakdown.some((b: any) => b.targetType === tType && b.targetId === id)))
     );
-    const alreadyPaidUSD_direct = currentPayments.reduce((s, p) => s + p.amountUSD, 0);
+    let alreadyPaidUSD_direct = 0;
+    currentPayments.forEach((p) => {
+      if (p.breakdown && Array.isArray(p.breakdown) && p.breakdown.length > 0) {
+        p.breakdown.filter((b: any) => b.targetType === tType && b.targetId === id).forEach((b: any) => {
+          alreadyPaidUSD_direct += b.amountUSD || 0;
+        });
+      } else if (p.targetType === tType && p.targetId === id) {
+        alreadyPaidUSD_direct += p.amountUSD || 0;
+      }
+    });
+
     const neededUSD_direct = Math.max(0, requiredFee_direct - alreadyPaidUSD_direct);
 
     // If it's fully paid already (or late_fee), just target what's required (for display or overpayment)
@@ -467,20 +479,23 @@ function distributePaymentAcrossConceptsInTelegram(params: {
     if (isDirectUsd) {
       targetOriginalNeeded = targetUSD_direct;
     } else {
-      // Rule of 3 for VES payments: (direct_usd_needed * fee_bcv / fee_direct) * bcvRate
-      // Or simply: portion of fee_bcv needed * bcvRate
       const proportion = requiredFee_direct > 0 ? (targetUSD_direct / requiredFee_direct) : 1;
       targetOriginalNeeded = proportion * requiredFee_bcv * bcvRate;
     }
 
     // Allocate from pool
     let allocOriginal = 0;
+    const manualAlloc = manualAllocationsOriginal ? manualAllocationsOriginal[key] : undefined;
 
-    if (i === count - 1) {
-      // Last item gets all the remaining pool
-      allocOriginal = remainingPoolOriginal;
-      
-      // Apply tolerance logic for single or last item
+    if (manualAlloc !== undefined && manualAlloc > 0) {
+      allocOriginal = Math.min(remainingPoolOriginal, manualAlloc);
+    } else if (i === count - 1) {
+      if (targetOriginalNeeded > 0 && remainingPoolOriginal > targetOriginalNeeded) {
+        allocOriginal = count === 1 ? remainingPoolOriginal : Math.min(remainingPoolOriginal, targetOriginalNeeded);
+      } else {
+        allocOriginal = remainingPoolOriginal;
+      }
+
       if (targetOriginalNeeded > 0) {
         const toleranceOriginal = isDirectUsd ? 0.80 : (0.80 * bcvRate);
         if (allocOriginal >= targetOriginalNeeded - toleranceOriginal && allocOriginal < targetOriginalNeeded) {
@@ -488,26 +503,23 @@ function distributePaymentAcrossConceptsInTelegram(params: {
         }
       }
     } else {
-      // Waterfall allocation up to what's needed
       allocOriginal = Math.min(remainingPoolOriginal, targetOriginalNeeded);
       
-      // Apply tolerance logic for intermediate items
       if (targetOriginalNeeded > 0) {
         const toleranceOriginal = isDirectUsd ? 0.80 : (0.80 * bcvRate);
         if (remainingPoolOriginal >= targetOriginalNeeded - toleranceOriginal && remainingPoolOriginal < targetOriginalNeeded) {
           allocOriginal = targetOriginalNeeded; 
         }
       }
-      
-      remainingPoolOriginal = Math.max(0, remainingPoolOriginal - allocOriginal);
     }
+
+    remainingPoolOriginal = Math.max(0, remainingPoolOriginal - allocOriginal);
 
     // Convert allocated original currency back to direct USD equivalent
     let allocDirectUSD = 0;
     if (isDirectUsd) {
       allocDirectUSD = allocOriginal;
     } else {
-      // allocOriginal is in VES. Convert to direct USD using rule of 3:
       if (requiredFee_bcv > 0 && bcvRate > 0) {
         allocDirectUSD = (allocOriginal / bcvRate) * (requiredFee_direct / requiredFee_bcv);
       } else {
@@ -816,6 +828,20 @@ Devuelve una lista JSON con cada pago, cambio de divisa o egreso detectado.
         ? item.selectedConcepts
         : [`${item.targetType}:${item.targetId}`];
 
+      let manualAllocationsOriginal: Record<string, number> | undefined = undefined;
+      if (item.conceptAllocationsUSD && Array.isArray(item.conceptAllocationsUSD) && item.conceptAllocationsUSD.length > 0) {
+        manualAllocationsOriginal = {};
+        for (const alloc of item.conceptAllocationsUSD) {
+          if (alloc && alloc.conceptKey) {
+            if (item.currency === 'VES') {
+              manualAllocationsOriginal[alloc.conceptKey] = alloc.amountUSD * (item.bcvRate || currentBcvRate);
+            } else {
+              manualAllocationsOriginal[alloc.conceptKey] = alloc.amountUSD;
+            }
+          }
+        }
+      }
+
       const distribution = distributePaymentAcrossConceptsInTelegram({
         memberId: item.matchedMemberId,
         selectedConcepts: concepts,
@@ -826,6 +852,7 @@ Devuelve una lista JSON con cada pago, cambio de divisa o egreso detectado.
         months,
         quotas,
         existingPayments: payments,
+        manualAllocationsOriginal,
       });
 
       const calculatedUSD = distribution.reduce((sum: number, d: any) => sum + d.amountUSD, 0);

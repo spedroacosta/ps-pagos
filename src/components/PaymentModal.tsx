@@ -150,7 +150,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       existingPayments: filteredPayments,
       customMethods: customPaymentMethods,
     });
-  }, [memberId, selectedConcepts, numAmount, currency, method, bcvRate, months, quotas, payments, editingPayment, customPaymentMethods]);
+  }, [memberId, selectedConcepts, numAmount, conceptAmounts, currency, method, bcvRate, months, quotas, payments, editingPayment, customPaymentMethods]);
 
   if (!isOpen) return null;
 
