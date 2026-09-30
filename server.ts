@@ -2823,18 +2823,24 @@ app.post('/api/smtp-test', tenantAuthMiddleware, async (req: any, res) => {
       return res.status(400).json({ error: 'Por favor proporciona Host, Usuario y Contraseña SMTP.' });
     }
 
+    const portNum = Number(port) || 587;
+    const isSecure = portNum === 465 ? true : Boolean(secure && portNum !== 587);
+
     const transporter = nodemailer.createTransport({
       host: host.trim(),
-      port: Number(port) || 587,
-      secure: Boolean(secure),
+      port: portNum,
+      secure: isSecure,
       auth: {
         user: user.trim(),
         pass: pass,
       },
+      family: 4,
       tls: {
         rejectUnauthorized: false,
       },
-      connectionTimeout: 10000,
+      connectionTimeout: 35000,
+      greetingTimeout: 30000,
+      socketTimeout: 45000,
     });
 
     // Verify SMTP connection
@@ -2941,15 +2947,22 @@ app.post('/api/send-invoice', tenantAuthMiddleware, async (req: any, res) => {
 
     if (smtpCfg.enabled && smtpCfg.host && smtpCfg.user && smtpCfg.pass) {
       try {
+        const portNum = Number(smtpCfg.port) || 587;
+        const isSecure = portNum === 465 ? true : Boolean(smtpCfg.secure && portNum !== 587);
+
         const transporter = nodemailer.createTransport({
-          host: smtpCfg.host,
-          port: smtpCfg.port || 587,
-          secure: smtpCfg.secure,
+          host: smtpCfg.host.trim(),
+          port: portNum,
+          secure: isSecure,
           auth: {
-            user: smtpCfg.user,
+            user: smtpCfg.user.trim(),
             pass: smtpCfg.pass,
           },
+          family: 4,
           tls: { rejectUnauthorized: false },
+          connectionTimeout: 35000,
+          greetingTimeout: 30000,
+          socketTimeout: 45000,
         });
 
         const attachments = [];
@@ -3247,6 +3260,17 @@ async function executeSingleTenantEmailBackup(
         return { success: false, error: `Hora programada (${targetTime}) no ha llegado aún.` };
       }
     }
+
+    // Cooldown check: if an attempt failed recently, wait at least 15 minutes before retrying to prevent spamming on cold starts
+    const lastAttemptMs = (eb as any).lastAttemptTimestamp ? new Date((eb as any).lastAttemptTimestamp).getTime() : 0;
+    if (Date.now() - lastAttemptMs < 15 * 60 * 1000) {
+      return { success: false, error: 'En espera de enfriamiento tras intento reciente.' };
+    }
+  }
+
+  // Mark attempt timestamp
+  if (!isForce) {
+    (eb as any).lastAttemptTimestamp = new Date().toISOString();
   }
 
   // Check SMTP configuration
@@ -3276,16 +3300,22 @@ async function executeSingleTenantEmailBackup(
     const fileName = `control_pagos_respaldo_${tenantId}_${todayStr}.json`;
     const jsonStr = JSON.stringify(tenantData, null, 2);
 
+    const port = Number(smtpCfg.port) || 587;
+    const isSecure = port === 465 ? true : Boolean(smtpCfg.secure && port !== 587);
+
     const transporter = nodemailer.createTransport({
-      host: smtpCfg.host,
-      port: smtpCfg.port || 587,
-      secure: smtpCfg.secure,
+      host: smtpCfg.host.trim(),
+      port: port,
+      secure: isSecure,
       auth: {
-        user: smtpCfg.user,
+        user: smtpCfg.user.trim(),
         pass: smtpCfg.pass,
       },
+      family: 4,
       tls: { rejectUnauthorized: false },
-      connectionTimeout: 15000,
+      connectionTimeout: 35000,
+      greetingTimeout: 30000,
+      socketTimeout: 45000,
     });
 
     const membersCount = tenantData.members?.length || 0;
@@ -3346,19 +3376,39 @@ async function executeSingleTenantEmailBackup(
       </div>
     `;
 
-    await transporter.sendMail({
-      from: `"${smtpCfg.fromName || 'Comité de Finanzas'}" <${smtpCfg.fromEmail || smtpCfg.user}>`,
-      to: destinationEmail,
-      subject: `📦 Respaldo Automático de Seguridad - Promoción ${tenantId.toUpperCase()} (${todayStr})`,
-      html: emailHtml,
-      attachments: [
-        {
-          filename: fileName,
-          content: jsonStr,
-          contentType: 'application/json',
-        },
-      ],
-    });
+    // Attempt sending with 1 automatic retry after a brief delay if cold start triggers timeout
+    let sent = false;
+    let lastSendErr: any = null;
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        await transporter.sendMail({
+          from: `"${smtpCfg.fromName || 'Comité de Finanzas'}" <${smtpCfg.fromEmail || smtpCfg.user}>`,
+          to: destinationEmail,
+          subject: `📦 Respaldo Automático de Seguridad - Promoción ${tenantId.toUpperCase()} (${todayStr})`,
+          html: emailHtml,
+          attachments: [
+            {
+              filename: fileName,
+              content: jsonStr,
+              contentType: 'application/json',
+            },
+          ],
+        });
+        sent = true;
+        break;
+      } catch (sendErr: any) {
+        lastSendErr = sendErr;
+        if (attempt < 2) {
+          console.warn(`[Email Auto-Backup Engine] Attempt ${attempt} failed with ${sendErr.message}, retrying in 3s...`);
+          await new Promise((r) => setTimeout(r, 3000));
+        }
+      }
+    }
+
+    if (!sent) {
+      throw lastSendErr || new Error('No se pudo enviar el correo de respaldo');
+    }
 
     eb.lastEmailBackupDate = todayStr;
     eb.lastEmailBackupTimestamp = new Date().toISOString();
