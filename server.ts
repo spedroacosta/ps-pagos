@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import dns from 'dns';
 import nodemailer from 'nodemailer';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -10,6 +11,13 @@ import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } fro
 import { google } from 'googleapis';
 
 dotenv.config();
+
+// Force Node.js DNS engine to always prioritize IPv4 addresses (prevents ENETUNREACH IPv6 errors)
+try {
+  if (dns.setDefaultResultOrder) {
+    dns.setDefaultResultOrder('ipv4first');
+  }
+} catch (e) {}
 
 function getCaracasDateString(): string {
   try {
@@ -2835,6 +2843,9 @@ app.post('/api/smtp-test', tenantAuthMiddleware, async (req: any, res) => {
         pass: pass,
       },
       family: 4,
+      lookup: (hostname, options, callback) => {
+        dns.lookup(hostname, { family: 4 }, callback);
+      },
       tls: {
         rejectUnauthorized: false,
       },
@@ -2959,6 +2970,9 @@ app.post('/api/send-invoice', tenantAuthMiddleware, async (req: any, res) => {
             pass: smtpCfg.pass,
           },
           family: 4,
+          lookup: (hostname, options, callback) => {
+            dns.lookup(hostname, { family: 4 }, callback);
+          },
           tls: { rejectUnauthorized: false },
           connectionTimeout: 35000,
           greetingTimeout: 30000,
@@ -3312,6 +3326,9 @@ async function executeSingleTenantEmailBackup(
         pass: smtpCfg.pass,
       },
       family: 4,
+      lookup: (hostname, options, callback) => {
+        dns.lookup(hostname, { family: 4 }, callback);
+      },
       tls: { rejectUnauthorized: false },
       connectionTimeout: 35000,
       greetingTimeout: 30000,
