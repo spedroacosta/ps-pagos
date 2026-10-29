@@ -78,6 +78,7 @@ export const EntradasLedger: React.FC<EntradasLedgerProps> = ({
   const [endDate, setEndDate] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [currencyFilter, setCurrencyFilter] = useState<'all' | 'VES' | 'USD'>('all');
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>('all');
   const [showBulkImport, setShowBulkImport] = useState<boolean>(false);
   const [sortDirection, setSortDirection] = useState<'desc' | 'asc'>('desc');
   const [activeSubTab, setActiveSubTab] = useState<'mensualidades' | 'compra_dolares' | 'egresos'>('mensualidades');
@@ -87,6 +88,26 @@ export const EntradasLedger: React.FC<EntradasLedgerProps> = ({
       setActiveSubTab('mensualidades');
     }
   }, [expenseConfig?.enabled, activeSubTab]);
+
+  // Aggregate list of payment methods present or default
+  const availableMethods = useMemo(() => {
+    const methodMap = new Map<string, string>();
+    methodMap.set('pago_movil', 'Pago Móvil');
+    methodMap.set('transferencia_ves', 'Transferencia Bs');
+    methodMap.set('efectivo_usd', 'Efectivo $');
+    methodMap.set('binance', 'Binance');
+    methodMap.set('efectivo_ves', 'Efectivo Bs');
+    methodMap.set('zelle', 'Zelle');
+    methodMap.set('banesco_panama', 'Banesco Panamá');
+
+    payments.forEach((p) => {
+      if (p.method && !methodMap.has(p.method)) {
+        methodMap.set(p.method, getMethodLabel(p.method));
+      }
+    });
+
+    return Array.from(methodMap.entries()).map(([id, label]) => ({ id, label }));
+  }, [payments]);
 
   // Expenses totals
   const totalExpensesVES = useMemo(() => {
@@ -152,6 +173,11 @@ export const EntradasLedger: React.FC<EntradasLedgerProps> = ({
         return false;
       }
 
+      // Payment method filter
+      if (paymentMethodFilter !== 'all' && p.method !== paymentMethodFilter) {
+        return false;
+      }
+
       // Search query
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
@@ -179,7 +205,7 @@ export const EntradasLedger: React.FC<EntradasLedgerProps> = ({
       const idB = b.id || '';
       return idB.localeCompare(idA);
     });
-  }, [movementPayments, startDate, endDate, currencyFilter, searchQuery, sortDirection]);
+  }, [movementPayments, startDate, endDate, currencyFilter, paymentMethodFilter, searchQuery, sortDirection]);
 
   // Aggregate stats for the selected month (ignoring search and currency filters)
   const totals = useMemo(() => {
@@ -462,6 +488,23 @@ export const EntradasLedger: React.FC<EntradasLedgerProps> = ({
           >
             Dólares (USD)
           </button>
+        </div>
+
+        {/* Payment Method Filter */}
+        <div className="flex items-center space-x-2 bg-slate-50 px-2.5 py-1.5 border border-slate-200 rounded-lg w-full lg:w-auto">
+          <CreditCard className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+          <select
+            value={paymentMethodFilter}
+            onChange={(e) => setPaymentMethodFilter(e.target.value)}
+            className="bg-transparent text-xs font-semibold text-slate-700 focus:outline-none cursor-pointer w-full"
+          >
+            <option value="all">Todos los Métodos</option>
+            {availableMethods.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
